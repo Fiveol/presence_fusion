@@ -1,34 +1,58 @@
 class PresenceFusionUI {
-    constructor() {
-        this.devices = new Map();
-        this.people = new Map();
-        this.tab = "devices";
-        this.ws = null;
+  constructor() {
+    this.devices = new Map();
+    this.people = new Map();
 
-        this.init();
-    }
+    this.sidebarCollapsed = false;
+    this.tab = "devices";
 
-    // =========================================================
-    // INIT UI
-    // =========================================================
-    init() {
-        document.body.innerHTML = `
+    this.hass = null;
+
+    this.init();
+  }
+
+  // =========================================================
+  // INIT
+  // =========================================================
+  init() {
+    document.body.innerHTML = `
       <div id="pf-root">
+
         <div id="pf-sidebar">
-          <div class="pf-title">Presence Fusion</div>
 
-          <button data-tab="people">People</button>
-          <button data-tab="devices">Devices</button>
-          <button data-tab="settings">Settings</button>
+          <div id="pf-sidebar-top">
+            <button id="pf-collapse-btn">☰</button>
+            <div id="pf-title">Presence Fusion</div>
+          </div>
 
-          <div class="pf-footer">
-            Live BLE Tracker
+          <button class="pf-nav" data-tab="devices">
+            <span class="pf-icon">📡</span>
+            <span class="pf-label">Devices</span>
+          </button>
+
+          <button class="pf-nav" data-tab="people">
+            <span class="pf-icon">👤</span>
+            <span class="pf-label">People</span>
+          </button>
+
+          <button class="pf-nav" data-tab="settings">
+            <span class="pf-icon">⚙️</span>
+            <span class="pf-label">Settings</span>
+          </button>
+
+          <div id="pf-sidebar-footer">
+            Presence Fusion
           </div>
         </div>
 
         <div id="pf-main">
+
           <div id="pf-header">
-            <span id="pf-tab-title"></span>
+            <div id="pf-header-title"></div>
+
+            <button id="pf-home-btn">
+              Back to Home Assistant
+            </button>
           </div>
 
           <div id="pf-content"></div>
@@ -36,22 +60,36 @@ class PresenceFusionUI {
       </div>
     `;
 
-        this.injectCSS();
-        this.bindEvents();
-        this.connect();
-        this.render();
-    }
+    this.injectCSS();
+    this.bindEvents();
 
-    // =========================================================
-    // STYLES
-    // =========================================================
-    injectCSS() {
-        const style = document.createElement("style");
-        style.textContent = `
+    this.connect();
+
+    this.render();
+  }
+
+  // =========================================================
+  // CSS
+  // =========================================================
+  injectCSS() {
+    const style = document.createElement("style");
+
+    style.textContent = `
+      :root {
+        color-scheme: light dark;
+      }
+
       body {
         margin: 0;
-        font-family: sans-serif;
         overflow: hidden;
+
+        background: var(--primary-background-color);
+        color: var(--primary-text-color);
+
+        font-family:
+          Roboto,
+          Noto,
+          sans-serif;
       }
 
       #pf-root {
@@ -59,256 +97,582 @@ class PresenceFusionUI {
         height: 100vh;
       }
 
+      /* ================================================== */
+      /* SIDEBAR */
+      /* ================================================== */
+
       #pf-sidebar {
         width: 240px;
-        background: #111;
-        color: white;
-        padding: 12px;
+
+        background:
+          var(--sidebar-background-color);
+
+        border-right:
+          1px solid var(--divider-color);
+
         display: flex;
         flex-direction: column;
-        gap: 6px;
+
+        transition: width 0.2s ease;
       }
 
-      #pf-sidebar button {
-        padding: 10px;
-        background: #222;
-        color: white;
-        border: 0;
-        cursor: pointer;
-        text-align: left;
-        border-radius: 6px;
+      #pf-sidebar.collapsed {
+        width: 64px;
       }
 
-      #pf-sidebar button:hover {
-        background: #333;
-      }
-
-      .pf-title {
-        font-size: 18px;
-        margin-bottom: 10px;
-        font-weight: bold;
-      }
-
-      .pf-footer {
-        margin-top: auto;
-        font-size: 11px;
-        opacity: 0.6;
-      }
-
-      #pf-main {
-        flex: 1;
-        background: #f5f5f5;
+      #pf-sidebar-top {
         display: flex;
-        flex-direction: column;
-      }
+        align-items: center;
+        gap: 8px;
 
-      #pf-header {
         padding: 12px;
-        background: white;
-        border-bottom: 1px solid #ddd;
       }
 
-      #pf-content {
-        padding: 16px;
-        overflow: auto;
-      }
+      #pf-collapse-btn {
+        width: 40px;
+        height: 40px;
 
-      .device {
-        background: white;
-        padding: 10px;
-        margin-bottom: 8px;
+        border: none;
         border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+
+        cursor: pointer;
+
+        background:
+          var(--card-background-color);
+
+        color:
+          var(--primary-text-color);
       }
 
-      .rssi {
-        font-weight: bold;
+      #pf-title {
+        font-size: 18px;
+        font-weight: 600;
+
+        white-space: nowrap;
       }
 
-      .muted {
+      #pf-sidebar.collapsed #pf-title {
+        display: none;
+      }
+
+      /* ================================================== */
+      /* NAV BUTTONS */
+      /* ================================================== */
+
+      .pf-nav {
+        margin: 4px 8px;
+        padding: 12px;
+
+        border: none;
+        border-radius: 10px;
+
+        cursor: pointer;
+
+        background: transparent;
+
+        color:
+          var(--primary-text-color);
+
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        text-align: left;
+
+        transition:
+          background 0.15s ease,
+          transform 0.1s ease;
+      }
+
+      .pf-nav:hover {
+        background:
+          var(--card-background-color);
+      }
+
+      .pf-nav:active {
+        transform: scale(0.98);
+      }
+
+      .pf-nav.active {
+        background:
+          var(--card-background-color);
+      }
+
+      .pf-icon {
+        width: 20px;
+        text-align: center;
+      }
+
+      #pf-sidebar.collapsed .pf-label {
+        display: none;
+      }
+
+      /* ================================================== */
+      /* FOOTER */
+      /* ================================================== */
+
+      #pf-sidebar-footer {
+        margin-top: auto;
+
+        padding: 12px;
+
         opacity: 0.6;
         font-size: 12px;
       }
 
-      .grid {
-        display: grid;
-        gap: 8px;
+      #pf-sidebar.collapsed #pf-sidebar-footer {
+        display: none;
       }
 
-      input, button.input {
-        padding: 8px;
-        border-radius: 6px;
-        border: 1px solid #ccc;
+      /* ================================================== */
+      /* MAIN */
+      /* ================================================== */
+
+      #pf-main {
+        flex: 1;
+
+        display: flex;
+        flex-direction: column;
+
+        background:
+          var(--primary-background-color);
+      }
+
+      #pf-header {
+        height: 64px;
+
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        padding: 0 16px;
+
+        border-bottom:
+          1px solid var(--divider-color);
+
+        background:
+          var(--card-background-color);
+      }
+
+      #pf-header-title {
+        font-size: 22px;
+        font-weight: 600;
+      }
+
+      #pf-home-btn {
+        padding: 8px 14px;
+
+        border: none;
+        border-radius: 8px;
+
+        cursor: pointer;
+
+        background:
+          var(--primary-color);
+
+        color:
+          var(--text-primary-color);
+      }
+
+      #pf-content {
+        flex: 1;
+
+        overflow: auto;
+
+        padding: 16px;
+      }
+
+      /* ================================================== */
+      /* DEVICES */
+      /* ================================================== */
+
+      .pf-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .pf-device {
+        padding: 14px;
+
+        border-radius: 14px;
+
+        background:
+          var(--card-background-color);
+
+        border:
+          1px solid var(--divider-color);
+      }
+
+      .pf-device-name {
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .pf-muted {
+        opacity: 0.7;
+        font-size: 13px;
+      }
+
+      .pf-rssi {
+        margin-top: 6px;
+        font-weight: 600;
+      }
+
+      input {
+        padding: 10px;
+
+        border-radius: 8px;
+
+        border:
+          1px solid var(--divider-color);
+
+        background:
+          var(--card-background-color);
+
+        color:
+          var(--primary-text-color);
+      }
+
+      button.pf-action {
+        padding: 10px 14px;
+
+        border: none;
+        border-radius: 8px;
+
+        cursor: pointer;
+
+        background:
+          var(--primary-color);
+
+        color:
+          var(--text-primary-color);
       }
     `;
-        document.head.appendChild(style);
-    }
 
-    // =========================================================
-    // EVENTS
-    // =========================================================
-    bindEvents() {
-        document.querySelectorAll("#pf-sidebar button").forEach(btn => {
-            btn.onclick = () => {
-                this.tab = btn.dataset.tab;
-                this.render();
-            };
-        });
-    }
+    document.head.appendChild(style);
+  }
 
-    // =========================================================
-    // RENDER
-    // =========================================================
-    render() {
-        const title = document.getElementById("pf-tab-title");
-        const content = document.getElementById("pf-content");
+  // =========================================================
+  // EVENTS
+  // =========================================================
+  bindEvents() {
+    document
+      .getElementById("pf-collapse-btn")
+      .onclick = () => {
+        this.sidebarCollapsed =
+          !this.sidebarCollapsed;
 
-        if (this.tab === "devices") {
-            title.textContent = "Devices";
-            content.innerHTML = this.renderDevices();
-        }
+        document
+          .getElementById("pf-sidebar")
+          .classList.toggle(
+            "collapsed",
+            this.sidebarCollapsed
+          );
+      };
 
-        if (this.tab === "people") {
-            title.textContent = "People";
-            content.innerHTML = this.renderPeople();
-        }
+    document
+      .getElementById("pf-home-btn")
+      .onclick = () => {
+        window.location.href = "/";
+      };
 
-        if (this.tab === "settings") {
-            title.textContent = "Settings";
-            content.innerHTML = this.renderSettings();
-        }
-    }
+    document
+      .querySelectorAll(".pf-nav")
+      .forEach(btn => {
+        btn.onclick = () => {
+          this.tab = btn.dataset.tab;
+          this.render();
+        };
+      });
+  }
 
-    // =========================================================
-    // DEVICES VIEW
-    // =========================================================
-    renderDevices() {
-        if (this.devices.size === 0) {
-            return `<div class="muted">No BLE devices detected yet...</div>`;
-        }
+  // =========================================================
+  // RENDER
+  // =========================================================
+  render() {
+    document
+      .querySelectorAll(".pf-nav")
+      .forEach(btn => {
+        btn.classList.toggle(
+          "active",
+          btn.dataset.tab === this.tab
+        );
+      });
 
-        let html = `<div class="grid">`;
+    const title =
+      document.getElementById(
+        "pf-header-title"
+      );
 
-        for (const d of this.devices.values()) {
-            html += `
-        <div class="device">
-          <div><b>${d.id}</b></div>
-          <div class="muted">${d.mac}</div>
-          <div class="rssi">RSSI: ${d.rssi ?? "?"}</div>
-          ${d.ibeacon ? `
-            <div class="muted">
-              iBeacon: ${d.ibeacon.uuid}
-              (${d.ibeacon.major}/${d.ibeacon.minor})
+    const content =
+      document.getElementById(
+        "pf-content"
+      );
+
+    // -------------------------------------------------------
+    // DEVICES
+    // -------------------------------------------------------
+    if (this.tab === "devices") {
+      title.textContent = "Devices";
+
+      if (this.devices.size === 0) {
+        content.innerHTML = `
+          <div class="pf-muted">
+            No BLE devices detected yet...
+          </div>
+        `;
+        return;
+      }
+
+      let html = `
+        <div class="pf-grid">
+      `;
+
+      for (const d of this.devices.values()) {
+        html += `
+          <div class="pf-device">
+
+            <div class="pf-device-name">
+              ${d.id}
             </div>
-          ` : ""}
+
+            <div class="pf-muted">
+              ${d.mac}
+            </div>
+
+            <div class="pf-rssi">
+              RSSI: ${d.rssi ?? "?"}
+            </div>
+
+            ${
+              d.ibeacon
+                ? `
+                  <div class="pf-muted">
+                    iBeacon:
+                    ${d.ibeacon.uuid}
+                  </div>
+
+                  <div class="pf-muted">
+                    Major:
+                    ${d.ibeacon.major}
+                    Minor:
+                    ${d.ibeacon.minor}
+                  </div>
+                `
+                : ""
+            }
+
+          </div>
+        `;
+      }
+
+      html += "</div>";
+
+      content.innerHTML = html;
+    }
+
+    // -------------------------------------------------------
+    // PEOPLE
+    // -------------------------------------------------------
+    if (this.tab === "people") {
+      title.textContent = "People";
+
+      content.innerHTML = `
+        <h3>Create Person</h3>
+
+        <div style="display:flex; gap:8px;">
+          <input
+            id="pf-person-name"
+            placeholder="Andrew"
+          />
+
+          <button
+            class="pf-action"
+            id="pf-add-person"
+          >
+            Create
+          </button>
+        </div>
+
+        <div
+          id="pf-people-list"
+          style="margin-top:16px;"
+        ></div>
+      `;
+
+      document
+        .getElementById("pf-add-person")
+        .onclick = () => {
+          this.addPerson();
+        };
+
+      this.renderPeople();
+    }
+
+    // -------------------------------------------------------
+    // SETTINGS
+    // -------------------------------------------------------
+    if (this.tab === "settings") {
+      title.textContent = "Settings";
+
+      content.innerHTML = `
+        <h3>Settings</h3>
+
+        <div class="pf-muted">
+          Update Interval
+        </div>
+
+        <div style="margin-top:8px;">
+          <input
+            type="number"
+            min="1"
+            max="60"
+            value="5"
+          />
         </div>
       `;
-        }
+    }
+  }
 
-        html += `</div>`;
-        return html;
+  // =========================================================
+  // PEOPLE
+  // =========================================================
+  addPerson() {
+    const input =
+      document.getElementById(
+        "pf-person-name"
+      );
+
+    if (!input.value) return;
+
+    const id =
+      input.value
+        .toLowerCase()
+        .replace(/\s+/g, "_");
+
+    this.people.set(id, {
+      id,
+      name: input.value,
+    });
+
+    input.value = "";
+
+    this.renderPeople();
+  }
+
+  renderPeople() {
+    const el =
+      document.getElementById(
+        "pf-people-list"
+      );
+
+    if (!el) return;
+
+    el.innerHTML =
+      Array.from(this.people.values())
+        .map(person => `
+          <div class="pf-device">
+            <div class="pf-device-name">
+              ${person.name}
+            </div>
+
+            <div class="pf-muted">
+              ${person.id}
+            </div>
+          </div>
+        `)
+        .join("");
+  }
+
+  // =========================================================
+  // HA WEBSOCKET
+  // =========================================================
+  connect() {
+    this.hass =
+      document.querySelector(
+        "home-assistant"
+      )?.hass;
+
+    if (!this.hass) {
+      console.warn(
+        "Waiting for Home Assistant..."
+      );
+
+      setTimeout(
+        () => this.connect(),
+        1000
+      );
+
+      return;
     }
 
-    // =========================================================
-    // PEOPLE VIEW
-    // =========================================================
-    renderPeople() {
-        return `
-      <h3>People</h3>
+    console.log(
+      "Connected to Home Assistant"
+    );
 
-      <input id="person-name" placeholder="Name (e.g. Andrew)" />
-      <button onclick="window.pf.addPerson()">Create Person</button>
+    // -------------------------------------------------------
+    // INITIAL STATE
+    // -------------------------------------------------------
+    this.hass.connection
+      .sendMessagePromise({
+        type:
+          "presence_fusion/ble_state"
+      })
+      .then(msg => {
 
-      <div id="people-list"></div>
-    `;
-    }
-
-    addPerson() {
-        const input = document.getElementById("person-name");
-        if (!input.value) return;
-
-        const id = input.value.toLowerCase().replace(/\s+/g, "_");
-
-        this.people.set(id, {
-            id,
-            name: input.value,
-            devices: []
-        });
-
-        input.value = "";
-        this.renderPeopleList();
-    }
-
-    renderPeopleList() {
-        const el = document.getElementById("people-list");
-        if (!el) return;
-
-        el.innerHTML = Array.from(this.people.values())
-            .map(p => `<div class="device">${p.name} (${p.id})</div>`)
-            .join("");
-    }
-
-    // =========================================================
-    // SETTINGS VIEW
-    // =========================================================
-    renderSettings() {
-        return `
-      <h3>Settings</h3>
-
-      <label>Update interval (1–60 sec)</label>
-      <input id="interval" type="number" min="1" max="60" value="5" />
-
-      <button onclick="window.pf.saveSettings()">Save</button>
-    `;
-    }
-
-    saveSettings() {
-        const val = document.getElementById("interval").value;
-        console.log("Save interval:", val);
-    }
-
-    // =========================================================
-    // WEBSOCKET
-    // =========================================================
-    connect() {
-        this.hass = document.querySelector("home-assistant")?.hass;
-
-        if (!this.hass) {
-            console.warn("No hass connection found yet");
-            setTimeout(() => this.connect(), 1000);
-            return;
-        }
-
-        this.hass.connection.subscribeMessage(
-            (msg) => this.handleUpdate(msg),
-            {
-                type: "presence_fusion/subscribe"
-            }
+        console.log(
+          "Initial BLE state",
+          msg
         );
 
-        this.hass.connection.sendMessage({
-            type: "presence_fusion/ble_state"
-        }).then((msg) => {
-            if (!msg.devices) return;
+        if (!msg.devices) return;
 
-            Object.values(msg.devices).forEach(d => {
-                this.devices.set(d.mac, d);
-            });
-
-            this.render();
+        msg.devices.forEach(device => {
+          this.devices.set(
+            device.mac,
+            device
+          );
         });
-    }
 
-    // =========================================================
-    // LIVE UPDATES
-    // =========================================================
-    handleUpdate(msg) {
-        if (!msg.device) return;
-
-        this.devices.set(msg.device.mac, msg.device);
         this.render();
-    }
+      });
+
+    // -------------------------------------------------------
+    // LIVE UPDATES
+    // -------------------------------------------------------
+    this.hass.connection
+      .subscribeMessage(
+        msg => {
+
+          console.log(
+            "BLE update",
+            msg
+          );
+
+          if (
+            !msg.event ||
+            !msg.event.device
+          ) {
+            return;
+          }
+
+          const device =
+            msg.event.device;
+
+          this.devices.set(
+            device.mac,
+            device
+          );
+
+          this.render();
+        },
+        {
+          type:
+            "presence_fusion/subscribe"
+        }
+      );
+  }
 }
 
-// expose global for buttons
-window.pf = new PresenceFusionUI();
+window.presenceFusion =
+  new PresenceFusionUI();
