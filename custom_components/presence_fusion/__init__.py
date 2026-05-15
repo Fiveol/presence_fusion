@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
+from .panel import async_setup_panel
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,23 +52,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.http.register_view(PresenceFusionPanelJsView())
     hass.http.register_view(PresenceFusionManifestView())
-    frontend.add_extra_js_url(hass, PANEL_JS_PATH)
+
+    try:
+        await async_setup_panel(hass)
+    except Exception as err:
+        _LOGGER.warning("Panel setup failed: %s", err)
+
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
-        frontend.async_register_built_in_panel(
-            hass,
-            DOMAIN,
-            sidebar_title=entry.title or "Presence Fusion",
-            frontend_url_path=DOMAIN,
-            sidebar_icon="mdi:account-group",
-            require_admin=False,
-            show_in_sidebar=True,
-        )
-    except Exception:  # defensive: different HA versions have different signatures
-        _LOGGER.exception("Could not register builtin panel; continuing without sidebar")
+        await async_setup_panel(hass)
+    except Exception as err:
+        _LOGGER.warning("Panel re-registration failed: %s", err)
 
     hass.data[DOMAIN][entry.entry_id] = entry.data
     return True

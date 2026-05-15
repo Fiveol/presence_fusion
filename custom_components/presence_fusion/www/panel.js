@@ -71,7 +71,7 @@ template.innerHTML = `
   </div>
 `;
 
-class PanelPresenceFusion extends HTMLElement {
+class PresenceFusionPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
@@ -105,7 +105,6 @@ class PanelPresenceFusion extends HTMLElement {
       this.version = manifest.version;
     } catch (err) {
       this.version = "unknown";
-      // eslint-disable-next-line no-console
       console.error("Failed to load Presence Fusion manifest:", err);
     }
 
@@ -142,28 +141,6 @@ class PanelPresenceFusion extends HTMLElement {
   }
 }
 
-function mountPanel() {
-  if (!window.location.hash.includes("/presence_fusion")) {
-    return;
-  }
+customElements.define("presence-fusion-panel", PresenceFusionPanel);
 
-  if (document.body.querySelector("panel-presence-fusion")) {
-    return;
-  }
-
-  document.body.appendChild(document.createElement("panel-presence-fusion"));
-}
-
-window.customPanels = window.customPanels || {};
-window.customPanels["presence_fusion"] = {
-  component: "panel-presence-fusion",
-  config: {},
-};
-
-if (!customElements.get("panel-presence-fusion")) {
-  customElements.define("panel-presence-fusion", PanelPresenceFusion);
-}
-
-window.addEventListener("hashchange", mountPanel);
-window.addEventListener("load", mountPanel);
-mountPanel();
+export default PresenceFusionPanel;
