@@ -1,7 +1,7 @@
 """Panel registration for Presence Fusion."""
 import logging
 
-from homeassistant.components import frontend
+from homeassistant.components import panel_custom
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
@@ -14,16 +14,16 @@ PANEL_JS_URL = "/presence_fusion/panel.js"
 async def async_setup_panel(hass: HomeAssistant) -> None:
     """Register the Presence Fusion panel with Home Assistant frontend."""
     try:
-        frontend.async_register_built_in_panel(
-            hass,
-            DOMAIN,
+        await panel_custom.async_register_panel(
+            hass=hass,
+            frontend_url_path=DOMAIN,
+            webcomponent_name="presence-fusion-panel",
             sidebar_title="Presence Fusion",
             sidebar_icon="mdi:account-group",
-            frontend_url_path=DOMAIN,
-            config={"_panel_custom": {"module_url": PANEL_JS_URL}},
+            module_url=PANEL_JS_URL,
             require_admin=False,
         )
-        _LOGGER.debug("Presence Fusion panel registered with module_url: %s", PANEL_JS_URL)
+        _LOGGER.debug("Presence Fusion panel registered")
     except Exception as err:
         _LOGGER.exception("Failed to register Presence Fusion panel: %s", err)
         raise
