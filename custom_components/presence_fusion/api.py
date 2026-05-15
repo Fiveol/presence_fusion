@@ -1,11 +1,12 @@
 import voluptuous as vol
+
 from homeassistant.components import websocket_api
 
 from .const import DOMAIN
 
 
 # -----------------------------
-# GET FULL DEVICE STATE
+# FULL STATE SNAPSHOT
 # -----------------------------
 @websocket_api.websocket_command({
     vol.Required("type"): "presence_fusion/ble_state",
@@ -31,7 +32,7 @@ async def ws_ble_state(hass, connection, msg):
 
 
 # -----------------------------
-# LIVE STREAM SUBSCRIPTION
+# LIVE STREAM
 # -----------------------------
 @websocket_api.websocket_command({
     vol.Required("type"): "presence_fusion/subscribe",
@@ -59,3 +60,11 @@ async def ws_subscribe(hass, connection, msg):
     connection.send_result(msg["id"], {
         "success": True
     })
+
+
+# -----------------------------
+# REGISTER COMMANDS (MODERN HA)
+# -----------------------------
+async def async_register_api(hass):
+    websocket_api.async_register_command(hass, ws_ble_state)
+    websocket_api.async_register_command(hass, ws_subscribe)
