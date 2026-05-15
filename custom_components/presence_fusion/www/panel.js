@@ -142,6 +142,28 @@ class PanelPresenceFusion extends HTMLElement {
   }
 }
 
-if (!customElements.get("panel-presence_fusion")) {
-  customElements.define("panel-presence_fusion", PanelPresenceFusion);
+function mountPanel() {
+  if (!window.location.hash.includes("/presence_fusion")) {
+    return;
+  }
+
+  if (document.body.querySelector("panel-presence-fusion")) {
+    return;
+  }
+
+  document.body.appendChild(document.createElement("panel-presence-fusion"));
 }
+
+window.customPanels = window.customPanels || {};
+window.customPanels["presence_fusion"] = {
+  component: "panel-presence-fusion",
+  config: {},
+};
+
+if (!customElements.get("panel-presence-fusion")) {
+  customElements.define("panel-presence-fusion", PanelPresenceFusion);
+}
+
+window.addEventListener("hashchange", mountPanel);
+window.addEventListener("load", mountPanel);
+mountPanel();
