@@ -18,12 +18,15 @@ async def async_register_panel(hass: HomeAssistant):
 
     frontend.async_register_built_in_panel(
         hass,
-        component_name="iframe",
+        component_name="custom",
         sidebar_title="Presence Fusion",
         sidebar_icon="mdi:home-account",
         frontend_url_path="presence-fusion",
         require_admin=False,
         config={
-            "url": f"{PANEL_URL}/presence-fusion.js?v={version}"
+            "_panel_custom": {
+                "name": "presence-fusion",
+                "js_url": f"{PANEL_URL}/presence-fusion.js?v={version}",
+            }
         },
     )
