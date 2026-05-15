@@ -1,4 +1,7 @@
 from homeassistant.core import HomeAssistant
+from homeassistant.components.http import (
+    StaticPathConfig,
+)
 
 from .const import DOMAIN, PANEL_URL
 
@@ -12,13 +15,15 @@ async def async_register_panel(
         .manifest["version"]
     )
 
-    hass.http.register_static_path(
-        PANEL_URL,
-        hass.config.path(
-            "custom_components/presence_fusion/www"
-        ),
-        cache_headers=False,
-    )
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(
+            PANEL_URL,
+            hass.config.path(
+                "custom_components/presence_fusion/www"
+            ),
+            cache_headers=False,
+        )
+    ])
 
     hass.components.frontend.async_register_built_in_panel(
         component_name="custom",
