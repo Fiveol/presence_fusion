@@ -24,7 +24,3 @@ class HomeOccupiedBinarySensor(
     _attr_unique_id = "home_occupied"
     _attr_is_on = False
     _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
-
-    @property
-    def entity_id(self):
-        return "binary_sensor.home_occupied"
