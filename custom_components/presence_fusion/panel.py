@@ -1,4 +1,7 @@
 from homeassistant.core import HomeAssistant
+
+from homeassistant.components import frontend
+
 from homeassistant.components.http import (
     StaticPathConfig,
 )
@@ -25,7 +28,8 @@ async def async_register_panel(
         )
     ])
 
-    hass.components.frontend.async_register_built_in_panel(
+    frontend.async_register_built_in_panel(
+        hass,
         component_name="custom",
         sidebar_title="Presence Fusion",
         sidebar_icon="mdi:home-account",

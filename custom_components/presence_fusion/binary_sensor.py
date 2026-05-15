@@ -21,14 +21,9 @@ class HomeOccupiedBinarySensor(
     BinarySensorEntity,
 ):
     _attr_name = "Occupied"
-
     _attr_unique_id = "home_occupied"
-
-    _attr_device_class = (
-        BinarySensorDeviceClass.OCCUPANCY
-    )
-
     _attr_is_on = False
+    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
 
     @property
     def entity_id(self):
