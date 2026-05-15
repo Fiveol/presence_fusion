@@ -59,7 +59,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         frontend.async_register_built_in_panel(
             hass,
-            "panel-presence-fusion",
+            DOMAIN,
             sidebar_title=entry.title or "Presence Fusion",
             frontend_url_path=DOMAIN,
             sidebar_icon="mdi:account-group",

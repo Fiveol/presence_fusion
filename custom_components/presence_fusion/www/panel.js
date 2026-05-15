@@ -142,6 +142,6 @@ class PanelPresenceFusion extends HTMLElement {
   }
 }
 
-if (!customElements.get("panel-presence-fusion")) {
-  customElements.define("panel-presence-fusion", PanelPresenceFusion);
+if (!customElements.get("panel-presence_fusion")) {
+  customElements.define("panel-presence_fusion", PanelPresenceFusion);
 }
