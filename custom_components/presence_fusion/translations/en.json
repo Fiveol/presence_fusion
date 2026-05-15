@@ -1,0 +1,13 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Presence Fusion",
+                "description": "Set up Presence Fusion"
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "Only one instance is allowed."
+        }
+    }
+}
