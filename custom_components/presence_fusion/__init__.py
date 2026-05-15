@@ -13,6 +13,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 from .panel import async_setup_panel
+from .entities import async_create_zone_entities, async_create_person_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,10 +49,90 @@ class PresenceFusionManifestView(HomeAssistantView):
         )
 
 
+class PresenceFusionApiDataView(HomeAssistantView):
+    url = "/presence_fusion/api/data"
+    name = "presence_fusion:api_data"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            states = hass.states.async_all()
+            people = [s for s in states if s.entity_id.startswith("person.")]
+            zones = [s for s in states if s.entity_id.startswith("zone.")]
+            device_trackers = [s for s in states if s.entity_id.startswith("device_tracker.")]
+            binary_sensors = [s for s in states if s.entity_id.startswith("binary_sensor.")]
+
+            def simplify(s):
+                return {
+                    "entity_id": s.entity_id,
+                    "state": s.state,
+                    "attributes": dict(s.attributes),
+                }
+
+            payload = {
+                "people": [simplify(s) for s in people],
+                "zones": [simplify(s) for s in zones],
+                "device_trackers": [simplify(s) for s in device_trackers],
+                "binary_sensors": [simplify(s) for s in binary_sensors],
+            }
+        except Exception as err:
+            _LOGGER.exception("Error gathering data for API: %s", err)
+            return web.Response(status=500, text=str(err))
+
+        return web.Response(text=json.dumps(payload), content_type="application/json")
+
+
+class PresenceFusionPersonCreateView(HomeAssistantView):
+    url = "/presence_fusion/api/person"
+    name = "presence_fusion:person_create"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        data = await request.json()
+        name = data.get("name")
+        if not name:
+            return web.Response(status=400, text="Missing name")
+
+        try:
+            await hass.services.async_call("person", "create", {"name": name}, blocking=True)
+            # Also create a device_tracker entity for this person
+            person_id = name.lower().replace(" ", "_")
+            await async_create_person_entity(hass, person_id, name)
+        except Exception as err:
+            _LOGGER.exception("Failed to create person: %s", err)
+            return web.Response(status=500, text=str(err))
+
+        return web.Response(status=200, text="ok")
+
+
+class PresenceFusionSettingsView(HomeAssistantView):
+    url = "/presence_fusion/api/settings"
+    name = "presence_fusion:settings"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        data = await request.json()
+        poll = data.get("ble_poll_interval")
+        try:
+            if poll is not None:
+                hass.data.setdefault(DOMAIN, {})["ble_poll_interval"] = float(poll)
+        except Exception as err:
+            _LOGGER.exception("Failed to set settings: %s", err)
+            return web.Response(status=500, text=str(err))
+
+        return web.Response(status=200, text="ok")
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.http.register_view(PresenceFusionPanelJsView())
     hass.http.register_view(PresenceFusionManifestView())
+    hass.http.register_view(PresenceFusionApiDataView())
+    hass.http.register_view(PresenceFusionPersonCreateView())
+    hass.http.register_view(PresenceFusionSettingsView())
 
     try:
         await async_setup_panel(hass)
@@ -66,6 +147,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_setup_panel(hass)
     except Exception as err:
         _LOGGER.warning("Panel re-registration failed: %s", err)
+
+    # Create entities for existing zones
+    try:
+        states = hass.states.async_all()
+        for state in states:
+            if state.entity_id.startswith("zone."):
+                zone_id = state.entity_id.replace("zone.", "")
+                zone_name = state.attributes.get("friendly_name", zone_id)
+                await async_create_zone_entities(hass, zone_id, zone_name)
+    except Exception as err:
+        _LOGGER.warning("Failed to create zone entities: %s", err)
 
     hass.data[DOMAIN][entry.entry_id] = entry.data
     return True
