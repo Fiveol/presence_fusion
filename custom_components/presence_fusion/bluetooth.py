@@ -2,88 +2,79 @@
 import logging
 from typing import Any
 
+from homeassistant.components import bluetooth as ha_bluetooth
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_get_ble_devices(hass: HomeAssistant) -> dict[str, Any]:
-    """Fetch BLE devices from the Bluetooth integration.
-    
-    Returns a dict with:
-    - proxies: list of Bluetooth adapters/proxies
-    - devices: list of discovered BLE devices
-    
-    This function gracefully handles missing Bluetooth integration data
-    and returns empty lists if data is unavailable.
+    """Fetch BLE devices using Home Assistant's official bluetooth API.
+
+    Uses the `bluetooth` helper APIs to retrieve discovered advertisements
+    and current scanner / adapter information. Falls back gracefully and
+    returns empty lists on error.
     """
-    proxies = []
-    devices = []
-    
+    proxies: list[dict[str, Any]] = []
+    devices: list[dict[str, Any]] = []
+
     try:
-        # Try to access Bluetooth integration data
-        bt_data = hass.data.get("bluetooth")
-        if not bt_data:
-            _LOGGER.debug("No Bluetooth data available")
-            return {"proxies": [], "devices": []}
-        
-        # Try to get manager
-        manager = bt_data.get("manager") or bt_data.get("adapter_manager")
-        if manager:
-            try:
-                # Try different attributes where devices might be stored
-                device_list = None
-                for attr in ("discovered_devices", "devices", "_discovered_devices", "discoveries", "_devices"):
-                    if hasattr(manager, attr):
-                        device_list = getattr(manager, attr)
-                        break
-
-                if device_list:
-                    try:
-                        iterator = list(device_list)
-                    except Exception:
-                        iterator = device_list
-                    for device in iterator:
-                        device_dict = _device_to_dict(device)
-                        if device_dict:
-                            devices.append(device_dict)
-            except Exception as err:
-                _LOGGER.debug("Error extracting devices from manager: %s", err)
-
-        # Try to get scanners/adapters
-        scanners = bt_data.get("scanners") or bt_data.get("adapters") or bt_data.get("adapters_by_address")
-        if isinstance(scanners, dict):
-            for adapter_addr, scanner in scanners.items():
-                try:
-                    proxies.append({
-                        "address": str(adapter_addr),
-                        "type": "bluetooth_scanner",
-                    })
-                except Exception as err:
-                    _LOGGER.debug("Error processing scanner %s: %s", adapter_addr, err)
-
-        # As a last resort, inspect any objects in hass.data.bluetooth for iterable device-like objects
+        # Fetch cached discoveries (only devices still present will be returned)
         try:
-            for key, val in bt_data.items():
-                if key in ("manager", "scanners", "adapters", "adapters_by_address"):
-                    continue
-                # If val is iterable, check first element for 'address' attribute
-                try:
-                    maybe_iter = list(val)
-                except Exception:
-                    continue
-                for item in maybe_iter:
-                    if hasattr(item, "address"):
-                        d = _device_to_dict(item)
-                        if d and d not in devices:
-                            devices.append(d)
-        except Exception:
-            pass
+            service_infos = await ha_bluetooth.async_discovered_service_info(
+                hass, connectable=False
+            )
+        except Exception as err:
+            _LOGGER.debug("async_discovered_service_info failed: %s", err)
+            service_infos = []
 
-        return {
-            "proxies": proxies,
-            "devices": devices,
-        }
+        for info in service_infos:
+            try:
+                address = getattr(info, "address", None)
+                if not address:
+                    continue
+
+                # Name can be on the service_info or nested on a BLEDevice
+                name = getattr(info, "name", None) or getattr(info, "local_name", None)
+                if not name:
+                    device_obj = getattr(info, "device", None)
+                    name = getattr(device_obj, "name", None) if device_obj is not None else None
+                if not name:
+                    name = "Unknown BLE Device"
+
+                devices.append(
+                    {
+                        "address": str(address),
+                        "name": str(name),
+                        "rssi": getattr(info, "rssi", None),
+                        "manufacturer_data": dict(getattr(info, "manufacturer_data", {}) or {}),
+                        "service_data": dict(getattr(info, "service_data", {}) or {}),
+                        "tx_power": getattr(info, "tx_power", None),
+                    }
+                )
+            except Exception as err:
+                _LOGGER.debug("Error converting service_info to dict: %s", err)
+
+        # Inspect current scanners (adapters)
+        try:
+            scanners = ha_bluetooth.async_current_scanners(hass)
+        except Exception as err:
+            _LOGGER.debug("async_current_scanners failed: %s", err)
+            scanners = []
+
+        for scanner in scanners:
+            try:
+                proxies.append(
+                    {
+                        "address": getattr(scanner, "source", None) or getattr(scanner, "address", None),
+                        "type": "bluetooth_scanner",
+                        "current_mode": getattr(scanner, "current_mode", None),
+                    }
+                )
+            except Exception as err:
+                _LOGGER.debug("Error processing scanner: %s", err)
+
+        return {"proxies": proxies, "devices": devices}
     except Exception as err:
         _LOGGER.debug("Error in async_get_ble_devices: %s", err)
         return {"proxies": [], "devices": []}
