@@ -78,11 +78,53 @@ class PresenceFusionApiDataView(HomeAssistantView):
                     "attributes": {k: self._safe_value(v) for k, v in s.attributes.items()},
                 }
 
+            # Get people manager and BLE devices
+            people_mgr: PeopleManager = hass.data[DOMAIN].get("people_manager")
+            pf_people = []
+            device_to_person = {}
+            if people_mgr:
+                pf_people = await people_mgr.async_list_people()
+                # Build device-to-person mapping
+                for person in pf_people:
+                    for device_id in person.get("devices", []):
+                        device_to_person[device_id] = person["id"]
+
+            # Get BLE devices
+            ble_info = await async_get_ble_devices(hass)
+
+            # Build device-to-zone mapping (device_tracker state = zone entity_id)
+            device_to_zone = {}
+            for dt in device_trackers:
+                zone_entity_id = f"zone.{dt.state}" if dt.state != "unknown" else None
+                if zone_entity_id:
+                    device_to_zone[dt.entity_id] = zone_entity_id
+
+            # Compute devices per zone
+            devices_per_zone = {}
+            for zone in zones:
+                zone_id = zone.entity_id
+                devices_per_zone[zone_id] = [
+                    dt.entity_id for dt in device_trackers
+                    if device_to_zone.get(dt.entity_id) == zone_id
+                ]
+
+            # Compute devices per person
+            devices_per_person = {}
+            for person in pf_people:
+                devices_per_person[person["id"]] = person.get("devices", [])
+
             payload = {
                 "people": [simplify(s) for s in people],
                 "zones": [simplify(s) for s in zones],
                 "device_trackers": [simplify(s) for s in device_trackers],
                 "binary_sensors": [simplify(s) for s in binary_sensors],
+                "ble_devices": ble_info.get("devices", []),
+                "ble_proxies": ble_info.get("proxies", []),
+                "pf_people": pf_people,
+                "device_to_person": device_to_person,
+                "device_to_zone": device_to_zone,
+                "devices_per_zone": devices_per_zone,
+                "devices_per_person": devices_per_person,
             }
         except Exception as err:
             _LOGGER.exception("Error gathering data for API: %s", err)
