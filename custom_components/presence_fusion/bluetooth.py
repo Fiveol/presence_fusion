@@ -42,6 +42,14 @@ async def async_get_ble_devices(hass: HomeAssistant) -> dict[str, Any]:
                 if not name:
                     name = "Unknown BLE Device"
 
+                # Determine scanner/source if available
+                scanner = getattr(info, "scanner", None)
+                scanner_source = None
+                try:
+                    scanner_source = getattr(scanner, "source", None) or getattr(scanner, "address", None)
+                except Exception:
+                    scanner_source = None
+
                 devices.append(
                     {
                         "address": str(address),
@@ -50,6 +58,7 @@ async def async_get_ble_devices(hass: HomeAssistant) -> dict[str, Any]:
                         "manufacturer_data": dict(getattr(info, "manufacturer_data", {}) or {}),
                         "service_data": dict(getattr(info, "service_data", {}) or {}),
                         "tx_power": getattr(info, "tx_power", None),
+                        "scanner": scanner_source,
                     }
                 )
             except Exception as err:

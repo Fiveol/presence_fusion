@@ -12,9 +12,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN
+from .const import DOMAIN, PLATFORMS
+from .data import PresenceFusionData
 from .panel import async_setup_panel
-from .entities import async_create_zone_entities, async_create_person_entity
+from .entities import async_create_person_entity
 from .bluetooth import async_get_ble_devices
 from .people import PeopleManager
 from .floorplan import FloorplanManager
@@ -274,6 +275,10 @@ class PresenceFusionPeopleListView(HomeAssistantView):
             person_id = name.lower().replace(" ", "_").replace("-", "_")
             person = await people_mgr.async_create_person(person_id, name)
 
+            presence_data = hass.data[DOMAIN].get("data")
+            if presence_data is not None:
+                await presence_data.async_add_person(person)
+
             # Ensure a HA device_tracker / person entity exists for this custom person
             try:
                 await async_create_person_entity(hass, person_id, name)
@@ -499,11 +504,9 @@ class PresenceFusionFloorplanZoneView(HomeAssistantView):
             if not zone:
                 return web.Response(status=404, text="Floorplan not found")
 
-            # Create zone-related entities in Home Assistant
-            try:
-                await async_create_zone_entities(hass, zone["id"], zone["name"])
-            except Exception:
-                _LOGGER.debug("Could not create HA zone entities for new zone")
+            presence_data = hass.data[DOMAIN].get("data")
+            if presence_data is not None:
+                await presence_data.async_add_zone(zone)
 
             return web.Response(
                 text=json.dumps(zone, default=str),
@@ -609,28 +612,51 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    presence_data = PresenceFusionData(hass)
+    hass.data[DOMAIN]["data"] = presence_data
+    await presence_data.async_refresh({})
+
+    async def _update_presence_from_ble(now):
+        try:
+            ble_info = await async_get_ble_devices(hass)
+            await presence_data.async_refresh(ble_info)
+        except Exception as err:
+            _LOGGER.debug("BLE poll error: %s", err)
+
+    from homeassistant.helpers.event import async_track_time_interval
+    from datetime import timedelta
+
+    try:
+        interval = float(hass.data.setdefault(DOMAIN, {}).get("ble_poll_interval", 10.0))
+    except Exception:
+        interval = 10.0
+
+    remove_listener = async_track_time_interval(
+        hass, _update_presence_from_ble, timedelta(seconds=interval)
+    )
+    entry.async_on_unload(remove_listener)
+
+    try:
+        hass.async_create_task(_update_presence_from_ble(None))
+    except Exception:
+        pass
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     try:
         await async_setup_panel(hass)
     except Exception as err:
         _LOGGER.warning("Panel re-registration failed: %s", err)
-
-    # Create entities for existing zones
-    try:
-        states = hass.states.async_all()
-        for state in states:
-            if state.entity_id.startswith("zone."):
-                zone_id = state.entity_id.replace("zone.", "")
-                zone_name = state.attributes.get("friendly_name", zone_id)
-                await async_create_zone_entities(hass, zone_id, zone_name)
-    except Exception as err:
-        _LOGGER.warning("Failed to create zone entities: %s", err)
 
     hass.data[DOMAIN][entry.entry_id] = entry.data
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.data[DOMAIN].pop(entry.entry_id, None)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        hass.data[DOMAIN].pop("data", None)
     try:
         if frontend.async_panel_exists(hass, DOMAIN):
             frontend.async_remove_panel(hass, DOMAIN)
@@ -638,4 +664,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             frontend.remove_extra_js_url(hass, PANEL_JS_PATH)
     except Exception:
         _LOGGER.debug("Could not remove panel cleanly")
-    return True
+    return unload_ok
