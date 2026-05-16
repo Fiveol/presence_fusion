@@ -77,7 +77,9 @@ template.innerHTML = `
 class PresenceFusionPanel extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
+    this.attachShadow({ mode: "open" }).appendChild(
+      template.content.cloneNode(true),
+    );
     this.view = "overview";
     this.version = null;
     this._onButtonClick = this._onButtonClick.bind(this);
@@ -131,24 +133,32 @@ class PresenceFusionPanel extends HTMLElement {
     const content = this.shadowRoot.querySelector(".content");
 
     if (this.view === "settings") {
-      const poll = (this.data && this.data.poll) || (window.presenceFusionPoll || 5);
+      const poll =
+        (this.data && this.data.poll) || window.presenceFusionPoll || 5;
       content.innerHTML = `
         <h2 class="panel-title">Settings</h2>
         <label>BLE poll frequency (seconds): <span id="poll-val">${poll}</span></label>
         <input id="poll-range" type="range" min="0.1" max="60" step="0.1" value="${poll}" />
         <button id="save-settings">Save</button>
       `;
-      this.shadowRoot.getElementById("poll-range").addEventListener("input", (e)=>{
-        this.shadowRoot.getElementById("poll-val").textContent = e.target.value;
-      });
-      this.shadowRoot.getElementById("save-settings").addEventListener("click", async ()=>{
-        const val = parseFloat(this.shadowRoot.getElementById("poll-range").value);
-        const ok = await saveSettings(val);
-        if (ok) {
-          window.presenceFusionPoll = val;
-          alert("Settings saved");
-        } else alert("Failed to save settings");
-      });
+      this.shadowRoot
+        .getElementById("poll-range")
+        .addEventListener("input", (e) => {
+          this.shadowRoot.getElementById("poll-val").textContent =
+            e.target.value;
+        });
+      this.shadowRoot
+        .getElementById("save-settings")
+        .addEventListener("click", async () => {
+          const val = parseFloat(
+            this.shadowRoot.getElementById("poll-range").value,
+          );
+          const ok = await saveSettings(val);
+          if (ok) {
+            window.presenceFusionPoll = val;
+            alert("Settings saved");
+          } else alert("Failed to save settings");
+        });
       return;
     }
 
@@ -160,13 +170,13 @@ class PresenceFusionPanel extends HTMLElement {
         <div id="map" style="border:1px solid var(--divider-color); height:60vh; overflow:auto; padding:12px; display:flex; gap:12px; flex-wrap:wrap;"></div>
       `;
       const map = this.shadowRoot.getElementById("map");
-      zones.forEach(z=>{
-        const el = document.createElement('div');
-        el.style.minWidth = '200px';
-        el.style.minHeight = '120px';
-        el.style.border = '1px dashed var(--divider-color)';
-        el.style.padding = '8px';
-        el.style.boxSizing = 'border-box';
+      zones.forEach((z) => {
+        const el = document.createElement("div");
+        el.style.minWidth = "200px";
+        el.style.minHeight = "120px";
+        el.style.border = "1px dashed var(--divider-color)";
+        el.style.padding = "8px";
+        el.style.boxSizing = "border-box";
         el.innerHTML = `<strong>${z.attributes.friendly_name || z.entity_id}</strong><div>State: ${z.state}</div>`;
         map.appendChild(el);
       });
@@ -176,11 +186,11 @@ class PresenceFusionPanel extends HTMLElement {
     if (this.view === "devices") {
       const devices = (this.data && this.data.device_trackers) || [];
       content.innerHTML = `<h2 class="panel-title">Devices</h2><div id="devices-list"></div>`;
-      const list = this.shadowRoot.getElementById('devices-list');
-      devices.forEach(d=>{
-        const item = document.createElement('div');
-        item.style.padding='8px';
-        item.style.borderBottom='1px solid var(--divider-color)';
+      const list = this.shadowRoot.getElementById("devices-list");
+      devices.forEach((d) => {
+        const item = document.createElement("div");
+        item.style.padding = "8px";
+        item.style.borderBottom = "1px solid var(--divider-color)";
         item.innerHTML = `
           <div><strong>${d.attributes.friendly_name || d.entity_id}</strong> — ${d.state}</div>
           <div><small>${d.entity_id}</small></div>
@@ -189,25 +199,31 @@ class PresenceFusionPanel extends HTMLElement {
         `;
         list.appendChild(item);
       });
-      this.shadowRoot.querySelectorAll('.rename-btn').forEach(btn=>{
-        btn.addEventListener('click', async (e)=>{
+      this.shadowRoot.querySelectorAll(".rename-btn").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
           const ent = e.currentTarget.dataset.entity;
-          const input = this.shadowRoot.querySelector(`input.rename-input[data-entity="${ent}"]`);
+          const input = this.shadowRoot.querySelector(
+            `input.rename-input[data-entity="${ent}"]`,
+          );
           const name = input.value.trim();
-          if (!name) return alert('Enter a name');
+          if (!name) return alert("Enter a name");
           try {
-            const resp = await fetch('/presence_fusion/api/entity', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+            const resp = await fetch("/presence_fusion/api/entity", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 entity_id: ent,
                 attributes: { friendly_name: name },
               }),
-                attributes: { friendly_name: name },
-              }),
             });
-            if (resp.ok) { alert('Renamed'); this._refreshData(); } else alert('Failed');
-          } catch(err){ console.error(err); alert('Error'); }
+            if (resp.ok) {
+              alert("Renamed");
+              this._refreshData();
+            } else alert("Failed");
+          } catch (err) {
+            console.error(err);
+            alert("Error");
+          }
         });
       });
       return;
@@ -216,20 +232,27 @@ class PresenceFusionPanel extends HTMLElement {
     if (this.view === "people") {
       const people = (this.data && this.data.people) || [];
       content.innerHTML = `<h2 class="panel-title">People</h2><div id="people-list"></div><div style="margin-top:12px;"><input id="new-person-name" placeholder="New person name" /><button id="create-person">Create</button></div>`;
-      const list = this.shadowRoot.getElementById('people-list');
-      people.forEach(p=>{
-        const item = document.createElement('div');
-        item.style.padding='8px';
-        item.style.borderBottom='1px solid var(--divider-color)';
+      const list = this.shadowRoot.getElementById("people-list");
+      people.forEach((p) => {
+        const item = document.createElement("div");
+        item.style.padding = "8px";
+        item.style.borderBottom = "1px solid var(--divider-color)";
         item.innerHTML = `<div><strong>${p.attributes.friendly_name || p.entity_id}</strong> — ${p.state}</div><div><small>${p.entity_id}</small></div>`;
         list.appendChild(item);
       });
-      this.shadowRoot.getElementById('create-person').addEventListener('click', async ()=>{
-        const name = this.shadowRoot.getElementById('new-person-name').value.trim();
-        if (!name) return alert('Enter a name');
-        const ok = await createPerson(name);
-        if (ok) { alert('Created'); this._refreshData(); } else alert('Failed to create');
-      });
+      this.shadowRoot
+        .getElementById("create-person")
+        .addEventListener("click", async () => {
+          const name = this.shadowRoot
+            .getElementById("new-person-name")
+            .value.trim();
+          if (!name) return alert("Enter a name");
+          const ok = await createPerson(name);
+          if (ok) {
+            alert("Created");
+            this._refreshData();
+          } else alert("Failed to create");
+        });
       return;
     }
 
@@ -238,9 +261,27 @@ class PresenceFusionPanel extends HTMLElement {
     const zones = (this.data && this.data.zones) || [];
     // compute counts per zone
     const counts = {};
-    people.forEach(p=>{ counts[p.state] = (counts[p.state]||0)+1; });
-    let peopleHtml = '<ul>' + people.map(p=>`<li>${p.attributes.friendly_name || p.entity_id}: ${p.state}</li>`).join('') + '</ul>';
-    let zonesHtml = '<ul>' + zones.map(z=>`<li>${z.attributes.friendly_name || z.entity_id}: ${counts[z.entity_id]||0} people</li>`).join('') + '</ul>';
+    people.forEach((p) => {
+      counts[p.state] = (counts[p.state] || 0) + 1;
+    });
+    let peopleHtml =
+      "<ul>" +
+      people
+        .map(
+          (p) =>
+            `<li>${p.attributes.friendly_name || p.entity_id}: ${p.state}</li>`,
+        )
+        .join("") +
+      "</ul>";
+    let zonesHtml =
+      "<ul>" +
+      zones
+        .map(
+          (z) =>
+            `<li>${z.attributes.friendly_name || z.entity_id}: ${counts[z.entity_id] || 0} people</li>`,
+        )
+        .join("") +
+      "</ul>";
     content.innerHTML = `
       <h2 class="panel-title">Overview</h2>
       <p>Version ${this.version ? `v${this.version}` : "Loading..."}</p>
