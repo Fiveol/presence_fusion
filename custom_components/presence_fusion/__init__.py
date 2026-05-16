@@ -38,14 +38,9 @@ class PresenceFusionManifestView(HomeAssistantView):
     requires_auth = False
 
     async def get(self, request: web.Request) -> web.Response:
-        try:
-            manifest = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
-        except Exception as err:
-            _LOGGER.error("Unable to read manifest.json: %s", err)
-            return web.Response(status=500, text="Unable to read manifest")
-
-        return web.Response(
-            text=json.dumps(manifest), content_type="application/json"
+        return web.FileResponse(
+            MANIFEST_FILE,
+            headers={"Content-Type": "application/json"},
         )
 
 
@@ -53,6 +48,15 @@ class PresenceFusionApiDataView(HomeAssistantView):
     url = "/presence_fusion/api/data"
     name = "presence_fusion:api_data"
     requires_auth = False
+
+    def _safe_value(self, value):
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        if isinstance(value, dict):
+            return {str(k): self._safe_value(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._safe_value(v) for v in value]
+        return str(value)
 
     async def get(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
@@ -67,7 +71,7 @@ class PresenceFusionApiDataView(HomeAssistantView):
                 return {
                     "entity_id": s.entity_id,
                     "state": s.state,
-                    "attributes": dict(s.attributes),
+                    "attributes": {k: self._safe_value(v) for k, v in s.attributes.items()},
                 }
 
             payload = {
@@ -80,7 +84,10 @@ class PresenceFusionApiDataView(HomeAssistantView):
             _LOGGER.exception("Error gathering data for API: %s", err)
             return web.Response(status=500, text=str(err))
 
-        return web.Response(text=json.dumps(payload), content_type="application/json")
+        return web.Response(
+            text=json.dumps(payload, default=str),
+            content_type="application/json",
+        )
 
 
 class PresenceFusionPersonCreateView(HomeAssistantView):
