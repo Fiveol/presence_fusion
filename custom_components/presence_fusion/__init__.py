@@ -52,7 +52,7 @@ class PresenceFusionManifestView(HomeAssistantView):
 class PresenceFusionApiDataView(HomeAssistantView):
     url = "/presence_fusion/api/data"
     name = "presence_fusion:api_data"
-    requires_auth = True
+    requires_auth = False
 
     async def get(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
@@ -86,7 +86,7 @@ class PresenceFusionApiDataView(HomeAssistantView):
 class PresenceFusionPersonCreateView(HomeAssistantView):
     url = "/presence_fusion/api/person"
     name = "presence_fusion:person_create"
-    requires_auth = True
+    requires_auth = False
 
     async def post(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
@@ -96,8 +96,16 @@ class PresenceFusionPersonCreateView(HomeAssistantView):
             return web.Response(status=400, text="Missing name")
 
         try:
-            await hass.services.async_call("person", "create", {"name": name}, blocking=True)
-            # Also create a device_tracker entity for this person
+            if hass.services.has_service("person", "create"):
+                await hass.services.async_call("person", "create", {"name": name}, blocking=True)
+            else:
+                _LOGGER.debug("person.create service not available, creating person state directly")
+                person_id = name.lower().replace(" ", "_")
+                hass.states.async_set(
+                    f"person.presence_fusion_{person_id}",
+                    "home",
+                    attributes={"friendly_name": name},
+                )
             person_id = name.lower().replace(" ", "_")
             await async_create_person_entity(hass, person_id, name)
         except Exception as err:
@@ -110,7 +118,7 @@ class PresenceFusionPersonCreateView(HomeAssistantView):
 class PresenceFusionSettingsView(HomeAssistantView):
     url = "/presence_fusion/api/settings"
     name = "presence_fusion:settings"
-    requires_auth = True
+    requires_auth = False
 
     async def post(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
@@ -126,6 +134,64 @@ class PresenceFusionSettingsView(HomeAssistantView):
         return web.Response(status=200, text="ok")
 
 
+class PresenceFusionEntityUpdateView(HomeAssistantView):
+    url = "/presence_fusion/api/entity"
+    name = "presence_fusion:entity_update"
+    requires_auth = False
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        data = await request.json()
+        entity_id = data.get("entity_id")
+        if not entity_id:
+            return web.Response(status=400, text="Missing entity_id")
+
+        state_obj = hass.states.get(entity_id)
+        if state_obj is None:
+            return web.Response(status=404, text="Entity not found")
+
+        new_state = data.get("state", state_obj.state)
+        new_attributes = dict(state_obj.attributes)
+        new_attributes.update(data.get("attributes", {}))
+
+        try:
+            hass.states.async_set(entity_id, new_state, attributes=new_attributes)
+        except Exception as err:
+            _LOGGER.exception("Failed to update entity %s: %s", entity_id, err)
+            return web.Response(status=500, text=str(err))
+
+        return web.Response(status=200, text="ok")
+
+
+class PresenceFusionEntityUpdateView(HomeAssistantView):
+    url = "/presence_fusion/api/entity"
+    name = "presence_fusion:entity_update"
+    requires_auth = False
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        data = await request.json()
+        entity_id = data.get("entity_id")
+        if not entity_id:
+            return web.Response(status=400, text="Missing entity_id")
+
+        state_obj = hass.states.get(entity_id)
+        if state_obj is None:
+            return web.Response(status=404, text="Entity not found")
+
+        new_state = data.get("state", state_obj.state)
+        new_attributes = dict(state_obj.attributes)
+        new_attributes.update(data.get("attributes", {}))
+
+        try:
+            hass.states.async_set(entity_id, new_state, attributes=new_attributes)
+        except Exception as err:
+            _LOGGER.exception("Failed to update entity %s: %s", entity_id, err)
+            return web.Response(status=500, text=str(err))
+
+        return web.Response(status=200, text="ok")
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.http.register_view(PresenceFusionPanelJsView())
@@ -133,6 +199,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(PresenceFusionApiDataView())
     hass.http.register_view(PresenceFusionPersonCreateView())
     hass.http.register_view(PresenceFusionSettingsView())
+    hass.http.register_view(PresenceFusionEntityUpdateView())
 
     try:
         await async_setup_panel(hass)

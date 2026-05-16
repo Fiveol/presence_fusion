@@ -195,12 +195,16 @@ class PresenceFusionPanel extends HTMLElement {
           const input = this.shadowRoot.querySelector(`input.rename-input[data-entity="${ent}"]`);
           const name = input.value.trim();
           if (!name) return alert('Enter a name');
-          // set state attributes via REST API
           try {
-            const resp = await fetch(`/api/states/${ent}`, {
+            const resp = await fetch('/presence_fusion/api/entity', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ state: this.data.device_trackers.find(x=>x.entity_id===ent).state || 'home', attributes: { friendly_name: name } })
+              body: JSON.stringify({
+                entity_id: ent,
+                attributes: { friendly_name: name },
+              }),
+                attributes: { friendly_name: name },
+              }),
             });
             if (resp.ok) { alert('Renamed'); this._refreshData(); } else alert('Failed');
           } catch(err){ console.error(err); alert('Error'); }
