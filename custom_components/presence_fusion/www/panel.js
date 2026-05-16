@@ -83,6 +83,7 @@ class PresenceFusionPanel extends HTMLElement {
     );
     this.view = "overview";
     this.version = null;
+    this.selectedFloorplan = null;
     this._onButtonClick = this._onButtonClick.bind(this);
   }
 
@@ -164,53 +165,217 @@ class PresenceFusionPanel extends HTMLElement {
     }
 
     if (this.view === "map") {
-      // Initialize Cesium 3D map view
       content.innerHTML = `
         <h2 class="panel-title">Map (3D)</h2>
         <div id="cesium-container" style="height:70vh; width:100%; border:1px solid var(--divider-color);"></div>
         <p><small>Loading 3D map. Click and drag to rotate, scroll to zoom.</small></p>
       `;
 
-      // Load Cesium.js dynamically
-      const script = document.createElement("script");
-      script.src =
-        "https://cesium.com/downloads/cesiumjs/releases/1.120/Cesium.js";
-      script.onload = () => {
-        const container = this.shadowRoot.getElementById("cesium-container");
-        if (container && window.Cesium) {
-          try {
-            const viewer = new window.Cesium.Viewer(container, {
-              terrain: window.Cesium.Terrain.fromUrl(
-                "https://terrain.cesium.com/terrain",
-              ),
-            });
-            viewer.scene.globe.depthTestAgainstTerrain = true;
+      if (!window.Cesium && !this._cesiumLoading) {
+        this._cesiumLoading = true;
+        const css = document.createElement("link");
+        css.rel = "stylesheet";
+        css.href =
+          "https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Widgets/widgets.css";
+        document.head.appendChild(css);
 
-            // Add zones as points
-            const zones = (this.data && this.data.zones) || [];
-            zones.forEach((zone) => {
-              const lat = parseFloat(zone.attributes.latitude || "40.7128");
-              const lon = parseFloat(zone.attributes.longitude || "-74.0060");
-              viewer.entities.add({
-                position: window.Cesium.Cartesian3.fromDegrees(lon, lat),
-                point: { pixelSize: 10, color: window.Cesium.Color.RED },
-                label: {
-                  text: zone.attributes.friendly_name || zone.entity_id,
-                  pixelOffset: new window.Cesium.Cartesian2(0, -20),
-                },
-              });
+        const script = document.createElement("script");
+        script.src =
+          "https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Cesium.js";
+        script.onload = () => this._render();
+        script.onerror = () => {
+          const container = this.shadowRoot.getElementById("cesium-container");
+          if (container) {
+            container.innerHTML =
+              "<p>Unable to load Cesium. Please check network or try again later.</p>";
+          }
+        };
+        document.head.appendChild(script);
+      }
+
+      if (window.Cesium) {
+        const container = this.shadowRoot.getElementById("cesium-container");
+        try {
+          if (!this._cesiumViewer) {
+            this._cesiumViewer = new window.Cesium.Viewer(container, {
+              terrainProvider: new window.Cesium.EllipsoidTerrainProvider(),
+              imageryProvider: new window.Cesium.OpenStreetMapImageryProvider({
+                url: "https://a.tile.openstreetmap.org/",
+              }),
+              baseLayerPicker: false,
+              sceneMode: window.Cesium.SceneMode.SCENE3D,
             });
-          } catch (err) {
-            console.error("Failed to initialize Cesium map:", err);
+          }
+
+          const viewer = this._cesiumViewer;
+          viewer.entities.removeAll();
+
+          const zones = (this.data && this.data.zones) || [];
+          const people = (this.data && this.data.pf_people) || [];
+          const deviceToPerson = (this.data && this.data.device_to_person) || {};
+
+          zones.forEach((zone) => {
+            const lat = parseFloat(zone.attributes.latitude || "40.7128");
+            const lon = parseFloat(zone.attributes.longitude || "-74.0060");
+            viewer.entities.add({
+              position: window.Cesium.Cartesian3.fromDegrees(lon, lat),
+              point: { pixelSize: 14, color: window.Cesium.Color.ORANGE },
+              label: {
+                text: zone.attributes.friendly_name || zone.entity_id,
+                font: "16px sans-serif",
+                pixelOffset: new window.Cesium.Cartesian2(0, -24),
+              },
+            });
+          });
+
+          people.forEach((person) => {
+            const id = person.id || person.entity_id || "person";
+            const assignedDevices = person.devices || [];
+            const assignedText = assignedDevices.length
+              ? `Devices: ${assignedDevices.join(", ")}`
+              : "No devices";
+            viewer.entities.add({
+              position: window.Cesium.Cartesian3.fromDegrees(-74.006, 40.7128),
+              point: { pixelSize: 10, color: window.Cesium.Color.CYAN },
+              label: {
+                text: `${person.name || id} (${assignedText})`,
+                font: "14px sans-serif",
+                pixelOffset: new window.Cesium.Cartesian2(0, -20),
+              },
+            });
+          });
+
+          viewer.zoomTo(viewer.entities);
+        } catch (err) {
+          console.error("Failed to initialize Cesium map:", err);
+          const container = this.shadowRoot.getElementById("cesium-container");
+          if (container) {
             container.innerHTML = "<p>Failed to load 3D map</p>";
           }
         }
-      };
-      document.head.appendChild(script);
+      }
       return;
     }
 
     if (this.view === "floorplan") {
+      const floorplans = (this.data && this.data.floorplans) || [];
+      if (this.selectedFloorplan) {
+        const fp = floorplans.find((item) => item.id === this.selectedFloorplan);
+        if (!fp) {
+          this.selectedFloorplan = null;
+          this._render();
+          return;
+        }
+
+        content.innerHTML = `
+          <h2 class="panel-title">Floorplan Editor</h2>
+          <button id="back-to-list">Back to floorplans</button>
+          <div style="margin-top:20px; display:flex; gap:16px;">
+            <div style="flex:1;">
+              <h3>${fp.name}</h3>
+              <div id="floorplan-editor" style="position:relative; border:1px solid var(--divider-color); min-height:320px; background:#f4f4f4;"></div>
+            </div>
+            <div style="width:320px;">
+              <h4>Zone Builder</h4>
+              <div id="zone-points">Click the image to add points</div>
+              <input id="zone-name" placeholder="Zone name" style="width:100%; margin-top:10px;" />
+              <button id="save-zone" style="margin-top:10px; width:100%;">Save Zone</button>
+              <h4 style="margin-top:20px;">Proxy Placement</h4>
+              <input id="proxy-id" placeholder="Proxy ID" style="width:100%;" />
+              <input id="proxy-x" placeholder="X" style="width:48%; margin-top:8px;" />
+              <input id="proxy-y" placeholder="Y" style="width:48%; margin-top:8px; float:right;" />
+              <button id="save-proxy" style="margin-top:10px; width:100%;">Save Proxy</button>
+              <div id="floorplan-messages" style="margin-top:12px;color:var(--secondary-text-color);"></div>
+            </div>
+          </div>
+        `;
+
+        const editor = this.shadowRoot.getElementById("floorplan-editor");
+        const points = [];
+        const pointList = this.shadowRoot.getElementById("zone-points");
+        const image = document.createElement("img");
+        image.style.maxWidth = "100%";
+        image.style.maxHeight = "600px";
+        image.src = fp.image ? `data:image/png;base64,${fp.image}` : "";
+        image.alt = fp.name;
+        editor.appendChild(image);
+
+        image.addEventListener("click", (event) => {
+          const rect = image.getBoundingClientRect();
+          const x = ((event.clientX - rect.left) / rect.width) * 100;
+          const y = ((event.clientY - rect.top) / rect.height) * 100;
+          points.push({ x, y });
+          const pointEl = document.createElement("div");
+          pointEl.textContent = `${points.length}: ${x.toFixed(1)}%, ${y.toFixed(1)}%`;
+          pointList.appendChild(pointEl);
+        });
+
+        this.shadowRoot
+          .getElementById("back-to-list")
+          .addEventListener("click", () => {
+            this.selectedFloorplan = null;
+            this._render();
+          });
+
+        this.shadowRoot
+          .getElementById("save-zone")
+          .addEventListener("click", async () => {
+            const name = this.shadowRoot.getElementById("zone-name").value.trim();
+            if (!name) return alert("Enter a zone name");
+            if (!points.length) return alert("Add at least one point");
+            try {
+              const resp = await fetch(
+                `/presence_fusion/api/floorplans/${fp.id}/zones`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ name, zone_data: { coordinates: points } }),
+                },
+              );
+              if (resp.ok) {
+                alert("Zone saved");
+                this._refreshData();
+              } else {
+                alert("Failed to save zone");
+              }
+            } catch (err) {
+              console.error(err);
+              alert("Error");
+            }
+          });
+
+        this.shadowRoot
+          .getElementById("save-proxy")
+          .addEventListener("click", async () => {
+            const id = this.shadowRoot.getElementById("proxy-id").value.trim();
+            const x = parseFloat(this.shadowRoot.getElementById("proxy-x").value);
+            const y = parseFloat(this.shadowRoot.getElementById("proxy-y").value);
+            if (!id) return alert("Enter proxy ID");
+            if (Number.isNaN(x) || Number.isNaN(y)) return alert("Enter X and Y");
+            try {
+              const resp = await fetch(
+                `/presence_fusion/api/floorplans/${fp.id}/proxies`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ proxy_id: id, position: { x, y } }),
+                },
+              );
+              if (resp.ok) {
+                alert("Proxy saved");
+                this._refreshData();
+              } else {
+                alert("Failed to save proxy");
+              }
+            } catch (err) {
+              console.error(err);
+              alert("Error");
+            }
+          });
+
+        return;
+      }
+
       content.innerHTML = `
         <h2 class="panel-title">Floorplan</h2>
         <div id="floorplan-list" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px;"></div>
@@ -229,7 +394,7 @@ class PresenceFusionPanel extends HTMLElement {
           "border:1px solid var(--divider-color);padding:12px;border-radius:8px;cursor:pointer;";
         card.innerHTML = `
           <h4>${fp.name}</h4>
-          <small>${fp.zones.length} zones</small><br/>
+          <small>${(fp.zones || []).length} zones</small><br/>
           <button data-fp-id="${fp.id}" class="edit-floorplan" style="margin-top:8px;">Edit</button>
           <button data-fp-id="${fp.id}" class="delete-floorplan" style="margin:8px 4px 0;">Delete</button>
         `;
@@ -239,7 +404,8 @@ class PresenceFusionPanel extends HTMLElement {
       this.shadowRoot.querySelectorAll(".edit-floorplan").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           const fpId = e.currentTarget.dataset.fpId;
-          alert(`Editing floorplan ${fpId} - coming soon!`);
+          this.selectedFloorplan = fpId;
+          this._render();
         });
       });
 
@@ -256,6 +422,7 @@ class PresenceFusionPanel extends HTMLElement {
               );
               if (resp.ok) {
                 alert("Deleted");
+                this.selectedFloorplan = null;
                 this._refreshData();
               } else {
                 alert("Failed to delete");
@@ -317,11 +484,12 @@ class PresenceFusionPanel extends HTMLElement {
         const item = document.createElement("div");
         item.style.padding = "8px";
         item.style.borderBottom = "1px solid var(--divider-color)";
+        const assignedPersonId = (this.data && this.data.device_to_person && this.data.device_to_person[d.address]) || "";
         const peopleSelect = people.length
           ? `
           <select class="device-person" data-device-id="${d.address}" style="margin:4px 0;">
             <option value="">Assign to person...</option>
-            ${people.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")}
+            ${people.map((p) => `<option value="${p.id}" ${p.id === assignedPersonId ? "selected" : ""}>${p.name}</option>`).join("")}
           </select>
         `
           : "";
@@ -349,6 +517,7 @@ class PresenceFusionPanel extends HTMLElement {
             });
             if (resp.ok) {
               alert("Device assigned");
+              this._refreshData();
             } else {
               alert("Failed to assign");
             }
@@ -570,6 +739,15 @@ async function saveSettings(poll) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ble_poll_interval: poll }),
+  });
+  return resp.ok;
+}
+
+async function createPerson(name) {
+  const resp = await fetch("/presence_fusion/api/people", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
   });
   return resp.ok;
 }

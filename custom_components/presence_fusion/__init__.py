@@ -480,6 +480,39 @@ class PresenceFusionFloorplanZoneView(HomeAssistantView):
             return web.Response(status=500, text=str(err))
 
 
+class PresenceFusionFloorplanProxyView(HomeAssistantView):
+    url = "/presence_fusion/api/floorplans/{floorplan_id}/proxies"
+    name = "presence_fusion:floorplan_proxies"
+    requires_auth = False
+
+    async def post(self, request: web.Request, floorplan_id: str) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        data = await request.json()
+        proxy_id = data.get("proxy_id")
+        position = data.get("position")
+
+        if not proxy_id or not position:
+            return web.Response(status=400, text="Missing proxy_id or position")
+
+        try:
+            floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
+            if not floorplan_mgr:
+                return web.Response(status=500, text="Floorplan manager not initialized")
+            
+            floorplan = await floorplan_mgr.async_add_proxy(
+                floorplan_id, proxy_id, position
+            )
+            if not floorplan:
+                return web.Response(status=404, text="Floorplan not found")
+            
+            return web.Response(
+                text=json.dumps(floorplan, default=str),
+                content_type="application/json",
+            )
+        except Exception as err:
+            _LOGGER.exception("Failed to add proxy: %s", err)
+            return web.Response(status=500, text=str(err))
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data.setdefault(DOMAIN, {})
@@ -496,6 +529,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(PresenceFusionFloorplansListView())
     hass.http.register_view(PresenceFusionFloorplanDetailView())
     hass.http.register_view(PresenceFusionFloorplanZoneView())
+    hass.http.register_view(PresenceFusionFloorplanProxyView())
 
     # Initialize managers
     people_mgr = PeopleManager(hass)
