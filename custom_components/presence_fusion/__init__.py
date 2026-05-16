@@ -125,6 +125,7 @@ class PresenceFusionApiDataView(HomeAssistantView):
                 "device_to_zone": device_to_zone,
                 "devices_per_zone": devices_per_zone,
                 "devices_per_person": devices_per_person,
+                "cesium_token": hass.data.setdefault(DOMAIN, {}).get("cesium_token"),
             }
         except Exception as err:
             _LOGGER.exception("Error gathering data for API: %s", err)
@@ -177,9 +178,12 @@ class PresenceFusionSettingsView(HomeAssistantView):
         hass: HomeAssistant = request.app["hass"]
         data = await request.json()
         poll = data.get("ble_poll_interval")
+        cesium_token = data.get("cesium_token")
         try:
             if poll is not None:
                 hass.data.setdefault(DOMAIN, {})["ble_poll_interval"] = float(poll)
+            if cesium_token is not None:
+                hass.data.setdefault(DOMAIN, {})["cesium_token"] = str(cesium_token)
         except Exception as err:
             _LOGGER.exception("Failed to set settings: %s", err)
             return web.Response(status=500, text=str(err))
@@ -269,6 +273,13 @@ class PresenceFusionPeopleListView(HomeAssistantView):
             
             person_id = name.lower().replace(" ", "_").replace("-", "_")
             person = await people_mgr.async_create_person(person_id, name)
+
+            # Ensure a HA device_tracker / person entity exists for this custom person
+            try:
+                await async_create_person_entity(hass, person_id, name)
+            except Exception:
+                _LOGGER.debug("Could not create HA person/device_tracker entity")
+
             return web.Response(
                 text=json.dumps(person, default=str),
                 content_type="application/json",
@@ -341,7 +352,21 @@ class PresenceFusionDeviceAssignView(HomeAssistantView):
             person = await people_mgr.async_assign_device(person_id, device_id)
             if not person:
                 return web.Response(status=404, text="Person not found")
-            
+
+            # Update or create the HA device_tracker for this person so their devices are tracked in state
+            try:
+                tracker_id = f"device_tracker.presence_fusion_person_{person_id}"
+                hass.states.async_set(
+                    tracker_id,
+                    hass.states.get(tracker_id).state if hass.states.get(tracker_id) else "home",
+                    attributes={
+                        "friendly_name": f"{person.get('name', person_id)} Location",
+                        "tracked_devices": person.get("devices", []),
+                    },
+                )
+            except Exception:
+                _LOGGER.debug("Could not update HA device_tracker for person %s", person_id)
+
             return web.Response(
                 text=json.dumps(person, default=str),
                 content_type="application/json",
@@ -386,6 +411,8 @@ class PresenceFusionFloorplansListView(HomeAssistantView):
                     name = await field.text()
                 elif field.name == "image":
                     image_data = await field.read()
+                elif field.name == "ha_zone":
+                    ha_zone = await field.text()
             
             if not name:
                 return web.Response(status=400, text="Missing floorplan name")
@@ -395,7 +422,7 @@ class PresenceFusionFloorplansListView(HomeAssistantView):
                 return web.Response(status=500, text="Floorplan manager not initialized")
             
             floorplan = await floorplan_mgr.async_create_floorplan(
-                name, image_data=image_data
+                name, image_data=image_data, ha_zone=ha_zone if 'ha_zone' in locals() else None
             )
             return web.Response(
                 text=json.dumps(floorplan, default=str),
@@ -465,18 +492,50 @@ class PresenceFusionFloorplanZoneView(HomeAssistantView):
             if not floorplan_mgr:
                 return web.Response(status=500, text="Floorplan manager not initialized")
             
-            floorplan = await floorplan_mgr.async_add_zone(
+            # Returns the created zone now
+            zone = await floorplan_mgr.async_add_zone(
                 floorplan_id, zone_name, **data.get("zone_data", {})
             )
-            if not floorplan:
+            if not zone:
                 return web.Response(status=404, text="Floorplan not found")
-            
+
+            # Create zone-related entities in Home Assistant
+            try:
+                await async_create_zone_entities(hass, zone["id"], zone["name"])
+            except Exception:
+                _LOGGER.debug("Could not create HA zone entities for new zone")
+
+            return web.Response(
+                text=json.dumps(zone, default=str),
+                content_type="application/json",
+            )
+        except Exception as err:
+            _LOGGER.exception("Failed to add zone: %s", err)
+            return web.Response(status=500, text=str(err))
+
+
+class PresenceFusionFloorplanZoneDetailView(HomeAssistantView):
+    url = "/presence_fusion/api/floorplans/{floorplan_id}/zones/{zone_id}"
+    name = "presence_fusion:floorplan_zone_detail"
+    requires_auth = False
+
+    async def delete(self, request: web.Request, floorplan_id: str, zone_id: str) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
+            if not floorplan_mgr:
+                return web.Response(status=500, text="Floorplan manager not initialized")
+
+            floorplan = await floorplan_mgr.async_remove_zone(floorplan_id, zone_id)
+            if not floorplan:
+                return web.Response(status=404, text="Floorplan or zone not found")
+
             return web.Response(
                 text=json.dumps(floorplan, default=str),
                 content_type="application/json",
             )
         except Exception as err:
-            _LOGGER.exception("Failed to add zone: %s", err)
+            _LOGGER.exception("Failed to delete zone: %s", err)
             return web.Response(status=500, text=str(err))
 
 
@@ -529,6 +588,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(PresenceFusionFloorplansListView())
     hass.http.register_view(PresenceFusionFloorplanDetailView())
     hass.http.register_view(PresenceFusionFloorplanZoneView())
+    hass.http.register_view(PresenceFusionFloorplanZoneDetailView())
     hass.http.register_view(PresenceFusionFloorplanProxyView())
 
     # Initialize managers

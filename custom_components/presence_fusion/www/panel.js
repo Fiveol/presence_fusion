@@ -137,10 +137,12 @@ class PresenceFusionPanel extends HTMLElement {
     if (this.view === "settings") {
       const poll =
         (this.data && this.data.poll) || window.presenceFusionPoll || 5;
+      const cesiumToken = (this.data && this.data.cesium_token) || "";
       content.innerHTML = `
         <h2 class="panel-title">Settings</h2>
         <label>BLE poll frequency (seconds): <span id="poll-val">${poll}</span></label>
         <input id="poll-range" type="range" min="0.1" max="60" step="0.1" value="${poll}" />
+        <div style="margin-top:12px;"><label>Cesium Ion Token (optional):</label><input id="cesium-token" style="width:100%;" value="${cesiumToken}" placeholder="Paste Cesium Ion token"/></div>
         <button id="save-settings">Save</button>
       `;
       this.shadowRoot
@@ -155,9 +157,11 @@ class PresenceFusionPanel extends HTMLElement {
           const val = parseFloat(
             this.shadowRoot.getElementById("poll-range").value,
           );
-          const ok = await saveSettings(val);
+          const token = this.shadowRoot.getElementById("cesium-token").value.trim();
+          const ok = await saveSettings(val, token);
           if (ok) {
             window.presenceFusionPoll = val;
+            window.presenceFusionCesiumToken = token;
             alert("Settings saved");
           } else alert("Failed to save settings");
         });
@@ -173,11 +177,15 @@ class PresenceFusionPanel extends HTMLElement {
 
       if (!window.Cesium && !this._cesiumLoading) {
         this._cesiumLoading = true;
-        const css = document.createElement("link");
-        css.rel = "stylesheet";
-        css.href =
-          "https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Widgets/widgets.css";
-        document.head.appendChild(css);
+        const widgetsCss = "https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Widgets/widgets.css";
+        // Import widgets css into the shadow root so it applies to the Cesium container
+        try {
+          const styleEl = document.createElement("style");
+          styleEl.textContent = `@import url('${widgetsCss}'); #cesium-container { min-height: 70vh; height:70vh; }`;
+          this.shadowRoot.appendChild(styleEl);
+        } catch (err) {
+          console.warn("Could not inject Cesium widgets CSS into shadow root:", err);
+        }
 
         const script = document.createElement("script");
         script.src =
@@ -196,6 +204,16 @@ class PresenceFusionPanel extends HTMLElement {
       if (window.Cesium) {
         const container = this.shadowRoot.getElementById("cesium-container");
         try {
+          // Apply Cesium Ion token if configured
+          try {
+            const token = (this.data && this.data.cesium_token) || window.presenceFusionCesiumToken || (window.__presence_fusion_cesium_token || null);
+            if (token && window.Cesium && window.Cesium.Ion) {
+              window.Cesium.Ion.defaultAccessToken = token;
+            }
+          } catch (e) {
+            console.debug("No Cesium Ion token applied:", e);
+          }
+
           if (!this._cesiumViewer) {
             this._cesiumViewer = new window.Cesium.Viewer(container, {
               terrainProvider: new window.Cesium.EllipsoidTerrainProvider(),
@@ -280,6 +298,10 @@ class PresenceFusionPanel extends HTMLElement {
               <div id="zone-points">Click the image to add points</div>
               <input id="zone-name" placeholder="Zone name" style="width:100%; margin-top:10px;" />
               <button id="save-zone" style="margin-top:10px; width:100%;">Save Zone</button>
+              <h4 style="margin-top:14px;">Map existing HA zone to this floorplan</h4>
+              <select id="ha-zone-map" style="width:100%; margin-top:6px;"></select>
+              <button id="map-ha-zone" style="margin-top:8px; width:100%">Map HA Zone</button>
+
               <h4 style="margin-top:20px;">Proxy Placement</h4>
               <input id="proxy-id" placeholder="Proxy ID" style="width:100%;" />
               <input id="proxy-x" placeholder="X" style="width:48%; margin-top:8px;" />
@@ -300,6 +322,18 @@ class PresenceFusionPanel extends HTMLElement {
         image.alt = fp.name;
         editor.appendChild(image);
 
+        // Existing zones list with delete
+        const zonesList = document.createElement("div");
+        zonesList.style.marginTop = "8px";
+        zonesList.innerHTML = `<h4>Existing Zones</h4>`;
+        (fp.zones || []).forEach((z) => {
+          const zEl = document.createElement("div");
+          zEl.style.padding = "6px 0";
+          zEl.innerHTML = `<strong>${z.name}</strong> ${z.ha_entity_id ? `(HA: ${z.ha_entity_id})` : ""} <button data-zone-id="${z.id}" class="delete-zone">Delete</button>`;
+          zonesList.appendChild(zEl);
+        });
+        editor.appendChild(zonesList);
+
         image.addEventListener("click", (event) => {
           const rect = image.getBoundingClientRect();
           const x = ((event.clientX - rect.left) / rect.width) * 100;
@@ -308,6 +342,54 @@ class PresenceFusionPanel extends HTMLElement {
           const pointEl = document.createElement("div");
           pointEl.textContent = `${points.length}: ${x.toFixed(1)}%, ${y.toFixed(1)}%`;
           pointList.appendChild(pointEl);
+        });
+
+        // Hook up delete buttons
+        zonesList.querySelectorAll(".delete-zone").forEach((btn) => {
+          btn.addEventListener("click", async (e) => {
+            const zid = e.currentTarget.dataset.zoneId;
+            if (!confirm("Delete this zone?")) return;
+            try {
+              const resp = await fetch(`/presence_fusion/api/floorplans/${fp.id}/zones/${zid}`, { method: "DELETE" });
+              if (resp.ok) {
+                alert("Zone deleted");
+                this._refreshData();
+              } else alert("Failed to delete zone");
+            } catch (err) {
+              console.error(err);
+              alert("Error");
+            }
+          });
+        });
+
+        // Populate HA zone map select in the editor
+        const haZones = (this.data && this.data.zones) || [];
+        const haMapSelect = this.shadowRoot.getElementById("ha-zone-map");
+        if (haMapSelect) {
+          haMapSelect.innerHTML = `
+            <option value="">(select HA zone)</option>
+            ${haZones.map((z) => `<option value="${z.entity_id}">${z.attributes.friendly_name || z.entity_id}</option>`).join("")} 
+          `;
+        }
+
+        this.shadowRoot.getElementById("map-ha-zone").addEventListener("click", async () => {
+          const haId = this.shadowRoot.getElementById("ha-zone-map").value;
+          if (!haId) return alert("Select an HA zone to map");
+          // Create a zone on the floorplan mapped to the HA zone
+          try {
+            const resp = await fetch(`/presence_fusion/api/floorplans/${fp.id}/zones`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: haId, zone_data: { ha_entity_id: haId } }),
+            });
+            if (resp.ok) {
+              alert("Mapped HA zone to floorplan");
+              this._refreshData();
+            } else alert("Failed to map HA zone");
+          } catch (err) {
+            console.error(err);
+            alert("Error");
+          }
         });
 
         this.shadowRoot
@@ -383,11 +465,25 @@ class PresenceFusionPanel extends HTMLElement {
           <h3>Upload Floorplan</h3>
           <input type="file" id="floorplan-file" accept="image/jpg,image/jpeg,image/png" />
           <input type="text" id="floorplan-name" placeholder="Floorplan name" style="margin:0 8px;" />
+          <div style="margin-top:8px;">
+            <label for="floorplan-ha-zone">Map to HA zone (optional):</label>
+            <select id="floorplan-ha-zone" style="margin-left:8px;"></select>
+          </div>
           <button id="upload-floorplan">Upload</button>
         </div>
       `;
 
       const list = this.shadowRoot.getElementById("floorplan-list");
+      // Populate HA zones select for mapping when creating floorplans
+      const haZones = (this.data && this.data.zones) || [];
+      const haSelect = this.shadowRoot.getElementById("floorplan-ha-zone");
+      if (haSelect) {
+        haSelect.innerHTML = `
+          <option value="">(none)</option>
+          ${haZones.map((z) => `<option value="${z.entity_id}">${z.attributes.friendly_name || z.entity_id}</option>`).join("")}
+        `;
+      }
+
       ((this.data && this.data.floorplans) || []).forEach((fp) => {
         const card = document.createElement("div");
         card.style.cssText =
@@ -449,7 +545,10 @@ class PresenceFusionPanel extends HTMLElement {
           formData.append("name", nameInput.value.trim());
 
           try {
-            const resp = await fetch("/presence_fusion/api/floorplans", {
+            const haZoneVal = this.shadowRoot.getElementById("floorplan-ha-zone").value;
+          if (haZoneVal) formData.append("ha_zone", haZoneVal);
+
+          const resp = await fetch("/presence_fusion/api/floorplans", {
               method: "POST",
               body: formData,
             });
@@ -734,11 +833,11 @@ async function fetchData() {
   }
 }
 
-async function saveSettings(poll) {
+async function saveSettings(poll, cesiumToken) {
   const resp = await fetch("/presence_fusion/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ble_poll_interval: poll }),
+    body: JSON.stringify({ ble_poll_interval: poll, cesium_token: cesiumToken }),
   });
   return resp.ok;
 }

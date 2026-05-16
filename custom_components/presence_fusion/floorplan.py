@@ -109,7 +109,7 @@ class FloorplanManager:
     async def async_add_zone(
         self, floorplan_id: str, zone_name: str, **zone_data: Any
     ) -> Optional[dict[str, Any]]:
-        """Add a zone to a floorplan."""
+        """Add a zone to a floorplan and return the new zone."""
         if floorplan_id not in self.floorplans:
             return None
         
@@ -122,7 +122,7 @@ class FloorplanManager:
         }
         self.floorplans[floorplan_id]["zones"].append(zone)
         await self.async_save()
-        return self.floorplans[floorplan_id]
+        return zone
 
     async def async_remove_zone(
         self, floorplan_id: str, zone_id: str

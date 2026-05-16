@@ -28,26 +28,30 @@ async def async_get_ble_devices(hass: HomeAssistant) -> dict[str, Any]:
             return {"proxies": [], "devices": []}
         
         # Try to get manager
-        manager = bt_data.get("manager")
+        manager = bt_data.get("manager") or bt_data.get("adapter_manager")
         if manager:
             try:
                 # Try different attributes where devices might be stored
                 device_list = None
-                if hasattr(manager, "discovered_devices"):
-                    device_list = manager.discovered_devices
-                elif hasattr(manager, "devices"):
-                    device_list = manager.devices
-                
+                for attr in ("discovered_devices", "devices", "_discovered_devices", "discoveries", "_devices"):
+                    if hasattr(manager, attr):
+                        device_list = getattr(manager, attr)
+                        break
+
                 if device_list:
-                    for device in device_list:
+                    try:
+                        iterator = list(device_list)
+                    except Exception:
+                        iterator = device_list
+                    for device in iterator:
                         device_dict = _device_to_dict(device)
                         if device_dict:
                             devices.append(device_dict)
             except Exception as err:
                 _LOGGER.debug("Error extracting devices from manager: %s", err)
-        
-        # Try to get scanners
-        scanners = bt_data.get("scanners", {})
+
+        # Try to get scanners/adapters
+        scanners = bt_data.get("scanners") or bt_data.get("adapters") or bt_data.get("adapters_by_address")
         if isinstance(scanners, dict):
             for adapter_addr, scanner in scanners.items():
                 try:
@@ -57,7 +61,25 @@ async def async_get_ble_devices(hass: HomeAssistant) -> dict[str, Any]:
                     })
                 except Exception as err:
                     _LOGGER.debug("Error processing scanner %s: %s", adapter_addr, err)
-        
+
+        # As a last resort, inspect any objects in hass.data.bluetooth for iterable device-like objects
+        try:
+            for key, val in bt_data.items():
+                if key in ("manager", "scanners", "adapters", "adapters_by_address"):
+                    continue
+                # If val is iterable, check first element for 'address' attribute
+                try:
+                    maybe_iter = list(val)
+                except Exception:
+                    continue
+                for item in maybe_iter:
+                    if hasattr(item, "address"):
+                        d = _device_to_dict(item)
+                        if d and d not in devices:
+                            devices.append(d)
+        except Exception:
+            pass
+
         return {
             "proxies": proxies,
             "devices": devices,
