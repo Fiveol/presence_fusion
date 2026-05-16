@@ -93,6 +93,28 @@ class PresenceFusionApiDataView(HomeAssistantView):
             # Get BLE devices
             ble_info = await async_get_ble_devices(hass)
 
+            # Get HA area list
+            areas = []
+            try:
+                registry = area_registry.async_get(hass)
+                area_entries = getattr(registry, "areas", None)
+                if area_entries is None and hasattr(registry, "async_list_areas"):
+                    area_entries = registry.async_list_areas()
+                if area_entries is not None:
+                    for area in area_entries:
+                        areas.append({"id": area.id, "name": area.name or ""})
+            except Exception:
+                try:
+                    registry = area_registry.async_get_registry(hass)
+                    area_entries = getattr(registry, "areas", None)
+                    if area_entries is None and hasattr(registry, "async_list_areas"):
+                        area_entries = registry.async_list_areas()
+                    if area_entries is not None:
+                        for area in area_entries:
+                            areas.append({"id": area.id, "name": area.name or ""})
+                except Exception:
+                    areas = []
+
             # Build device-to-zone mapping (device_tracker state = zone entity_id)
             device_to_zone = {}
             for dt in device_trackers:
@@ -117,6 +139,7 @@ class PresenceFusionApiDataView(HomeAssistantView):
             payload = {
                 "people": [simplify(s) for s in people],
                 "zones": [simplify(s) for s in zones],
+                "areas": areas,
                 "device_trackers": [simplify(s) for s in device_trackers],
                 "binary_sensors": [simplify(s) for s in binary_sensors],
                 "ble_devices": ble_info.get("devices", []),
@@ -126,6 +149,7 @@ class PresenceFusionApiDataView(HomeAssistantView):
                 "device_to_zone": device_to_zone,
                 "devices_per_zone": devices_per_zone,
                 "devices_per_person": devices_per_person,
+                "ble_poll_interval": hass.data.setdefault(DOMAIN, {}).get("ble_poll_interval", 10.0),
                 "cesium_token": hass.data.setdefault(DOMAIN, {}).get("cesium_token"),
             }
         except Exception as err:
@@ -151,23 +175,30 @@ class PresenceFusionPersonCreateView(HomeAssistantView):
             return web.Response(status=400, text="Missing name")
 
         try:
+            person_id = name.lower().replace(" ", "_")
             if hass.services.has_service("person", "create"):
                 await hass.services.async_call("person", "create", {"name": name}, blocking=True)
             else:
                 _LOGGER.debug("person.create service not available, creating person state directly")
-                person_id = name.lower().replace(" ", "_")
                 hass.states.async_set(
                     f"person.presence_fusion_{person_id}",
                     "home",
                     attributes={"friendly_name": name},
                 )
-            person_id = name.lower().replace(" ", "_")
             await async_create_person_entity(hass, person_id, name)
         except Exception as err:
             _LOGGER.exception("Failed to create person: %s", err)
             return web.Response(status=500, text=str(err))
 
-        return web.Response(status=200, text="ok")
+        return web.Response(
+            text=json.dumps({
+                "id": person_id,
+                "name": name,
+                "person_entity_id": f"person.presence_fusion_{person_id}",
+                "device_tracker_id": f"device_tracker.presence_fusion_person_{person_id}",
+            }),
+            content_type="application/json",
+        )
 
 
 class PresenceFusionSettingsView(HomeAssistantView):
@@ -185,6 +216,16 @@ class PresenceFusionSettingsView(HomeAssistantView):
                 hass.data.setdefault(DOMAIN, {})["ble_poll_interval"] = float(poll)
             if cesium_token is not None:
                 hass.data.setdefault(DOMAIN, {})["cesium_token"] = str(cesium_token)
+
+            entries = hass.config_entries.async_entries(DOMAIN)
+            if entries:
+                entry = entries[0]
+                options = dict(entry.options)
+                if poll is not None:
+                    options["ble_poll_interval"] = float(poll)
+                if cesium_token is not None:
+                    options["cesium_token"] = str(cesium_token)
+                hass.config_entries.async_update_entry(entry, options=options)
         except Exception as err:
             _LOGGER.exception("Failed to set settings: %s", err)
             return web.Response(status=500, text=str(err))
@@ -410,14 +451,15 @@ class PresenceFusionFloorplansListView(HomeAssistantView):
             
             name = None
             image_data = None
+            ha_area = None
             
             async for field in reader:
                 if field.name == "name":
                     name = await field.text()
                 elif field.name == "image":
                     image_data = await field.read()
-                elif field.name == "ha_zone":
-                    ha_zone = await field.text()
+                elif field.name == "ha_area":
+                    ha_area = await field.text()
             
             if not name:
                 return web.Response(status=400, text="Missing floorplan name")
@@ -427,7 +469,7 @@ class PresenceFusionFloorplansListView(HomeAssistantView):
                 return web.Response(status=500, text="Floorplan manager not initialized")
             
             floorplan = await floorplan_mgr.async_create_floorplan(
-                name, image_data=image_data, ha_zone=ha_zone if 'ha_zone' in locals() else None
+                name, image_data=image_data, ha_area=ha_area
             )
             return web.Response(
                 text=json.dumps(floorplan, default=str),
@@ -498,8 +540,11 @@ class PresenceFusionFloorplanZoneView(HomeAssistantView):
                 return web.Response(status=500, text="Floorplan manager not initialized")
             
             # Returns the created zone now
+            zone_data = data.get("zone_data", {})
+            if "ha_zone_id" in zone_data and "ha_area_id" not in zone_data:
+                zone_data["ha_area_id"] = zone_data.pop("ha_zone_id")
             zone = await floorplan_mgr.async_add_zone(
-                floorplan_id, zone_name, **data.get("zone_data", {})
+                floorplan_id, zone_name, **zone_data
             )
             if not zone:
                 return web.Response(status=404, text="Floorplan not found")
@@ -508,8 +553,13 @@ class PresenceFusionFloorplanZoneView(HomeAssistantView):
             if presence_data is not None:
                 await presence_data.async_add_zone(zone)
 
+            response = dict(zone)
+            response["entity_ids"] = [
+                f"binary_sensor.presence_fusion_zone_{zone['id']}_occupancy",
+                f"sensor.presence_fusion_zone_{zone['id']}_count",
+            ]
             return web.Response(
-                text=json.dumps(zone, default=str),
+                text=json.dumps(response, default=str),
                 content_type="application/json",
             )
         except Exception as err:
@@ -614,6 +664,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     presence_data = PresenceFusionData(hass)
     hass.data[DOMAIN]["data"] = presence_data
+    hass.data[DOMAIN]["config_entry_id"] = entry.entry_id
+    hass.data[DOMAIN]["ble_poll_interval"] = entry.options.get("ble_poll_interval", 10.0)
+    hass.data[DOMAIN]["cesium_token"] = entry.options.get("cesium_token")
     await presence_data.async_refresh({})
 
     async def _update_presence_from_ble(now):
@@ -634,6 +687,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     remove_listener = async_track_time_interval(
         hass, _update_presence_from_ble, timedelta(seconds=interval)
     )
+    hass.data[DOMAIN]["ble_poll_listener"] = remove_listener
     entry.async_on_unload(remove_listener)
 
     try:
@@ -657,6 +711,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         hass.data[DOMAIN].pop("data", None)
+        if remove_listener := hass.data[DOMAIN].pop("ble_poll_listener", None):
+            try:
+                remove_listener()
+            except Exception:
+                pass
     try:
         if frontend.async_panel_exists(hass, DOMAIN):
             frontend.async_remove_panel(hass, DOMAIN)

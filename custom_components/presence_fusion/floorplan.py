@@ -31,6 +31,12 @@ class FloorplanManager:
             data = await self.store.async_load()
             if data:
                 self.floorplans = data.get("floorplans", {})
+                for floorplan in self.floorplans.values():
+                    if "ha_zone" in floorplan and "ha_area" not in floorplan:
+                        floorplan["ha_area"] = floorplan.pop("ha_zone")
+                    for zone in floorplan.get("zones", []):
+                        if "ha_entity_id" in zone and "ha_area_id" not in zone:
+                            zone["ha_area_id"] = zone.pop("ha_entity_id")
             else:
                 self.floorplans = {}
         except Exception as err:
@@ -45,7 +51,7 @@ class FloorplanManager:
             _LOGGER.error("Failed to save floorplans: %s", err)
 
     async def async_create_floorplan(
-        self, name: str, image_data: Optional[bytes] = None, **kwargs: Any
+        self, name: str, image_data: Optional[bytes] = None, ha_area: str | None = None, **kwargs: Any
     ) -> dict[str, Any]:
         """Create a new floorplan."""
         floorplan_id = str(uuid4())
@@ -55,6 +61,7 @@ class FloorplanManager:
             "image": None,  # Base64 encoded image data
             "zones": [],
             "proxies": [],
+            "ha_area": ha_area,
             "floor_index": 0,
             "position": {"x": 0, "y": 0, "z": 0},
             "rotation": {"x": 0, "y": 0, "z": 0},
