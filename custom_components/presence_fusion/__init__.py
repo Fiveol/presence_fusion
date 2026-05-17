@@ -71,14 +71,20 @@ class PresenceFusionApiDataView(HomeAssistantView):
             states = hass.states.async_all()
             people = [s for s in states if s.entity_id.startswith("person.")]
             zones = [s for s in states if s.entity_id.startswith("zone.")]
-            device_trackers = [s for s in states if s.entity_id.startswith("device_tracker.")]
-            binary_sensors = [s for s in states if s.entity_id.startswith("binary_sensor.")]
+            device_trackers = [
+                s for s in states if s.entity_id.startswith("device_tracker.")
+            ]
+            binary_sensors = [
+                s for s in states if s.entity_id.startswith("binary_sensor.")
+            ]
 
             def simplify(s):
                 return {
                     "entity_id": s.entity_id,
                     "state": s.state,
-                    "attributes": {k: self._safe_value(v) for k, v in s.attributes.items()},
+                    "attributes": {
+                        k: self._safe_value(v) for k, v in s.attributes.items()
+                    },
                 }
 
             # Get people manager and BLE devices
@@ -129,14 +135,17 @@ class PresenceFusionApiDataView(HomeAssistantView):
             for zone in zones:
                 zone_id = zone.entity_id
                 devices_per_zone[zone_id] = [
-                    dt.entity_id for dt in device_trackers
+                    dt.entity_id
+                    for dt in device_trackers
                     if device_to_zone.get(dt.entity_id) == zone_id
                 ]
 
             # Compute devices per person
             devices_per_person = {}
             for person in pf_people:
-                devices_per_person[person["id"]] = [str(device).lower() for device in person.get("devices", [])]
+                devices_per_person[person["id"]] = [
+                    str(device).lower() for device in person.get("devices", [])
+                ]
 
             payload = {
                 "people": [simplify(s) for s in people],
@@ -151,7 +160,9 @@ class PresenceFusionApiDataView(HomeAssistantView):
                 "device_to_zone": device_to_zone,
                 "devices_per_zone": devices_per_zone,
                 "devices_per_person": devices_per_person,
-                "ble_poll_interval": hass.data.setdefault(DOMAIN, {}).get("ble_poll_interval", 10.0),
+                "ble_poll_interval": hass.data.setdefault(DOMAIN, {}).get(
+                    "ble_poll_interval", 10.0
+                ),
                 "cesium_token": hass.data.setdefault(DOMAIN, {}).get("cesium_token"),
             }
         except Exception as err:
@@ -179,9 +190,13 @@ class PresenceFusionPersonCreateView(HomeAssistantView):
         try:
             person_id = name.lower().replace(" ", "_")
             if hass.services.has_service("person", "create"):
-                await hass.services.async_call("person", "create", {"name": name}, blocking=True)
+                await hass.services.async_call(
+                    "person", "create", {"name": name}, blocking=True
+                )
             else:
-                _LOGGER.debug("person.create service not available, creating person state directly")
+                _LOGGER.debug(
+                    "person.create service not available, creating person state directly"
+                )
                 hass.states.async_set(
                     f"person.presence_fusion_{person_id}",
                     "home",
@@ -192,12 +207,14 @@ class PresenceFusionPersonCreateView(HomeAssistantView):
             return web.Response(status=500, text=str(err))
 
         return web.Response(
-            text=json.dumps({
-                "id": person_id,
-                "name": name,
-                "person_entity_id": f"person.presence_fusion_{person_id}",
-                "device_tracker_id": f"device_tracker.presence_fusion_person_{person_id}",
-            }),
+            text=json.dumps(
+                {
+                    "id": person_id,
+                    "name": name,
+                    "person_entity_id": f"person.presence_fusion_{person_id}",
+                    "device_tracker_id": f"device_tracker.presence_fusion_person_{person_id}",
+                }
+            ),
             content_type="application/json",
         )
 
@@ -312,7 +329,7 @@ class PresenceFusionPeopleListView(HomeAssistantView):
             people_mgr: PeopleManager = hass.data[DOMAIN].get("people_manager")
             if not people_mgr:
                 return web.Response(status=500, text="People manager not initialized")
-            
+
             people = await people_mgr.async_list_people()
             return web.Response(
                 text=json.dumps(people, default=str),
@@ -333,7 +350,7 @@ class PresenceFusionPeopleListView(HomeAssistantView):
             people_mgr: PeopleManager = hass.data[DOMAIN].get("people_manager")
             if not people_mgr:
                 return web.Response(status=500, text="People manager not initialized")
-            
+
             person_id = name.lower().replace(" ", "_").replace("-", "_")
             person = await people_mgr.async_create_person(person_id, name)
 
@@ -368,11 +385,11 @@ class PresenceFusionPersonDetailView(HomeAssistantView):
             people_mgr: PeopleManager = hass.data[DOMAIN].get("people_manager")
             if not people_mgr:
                 return web.Response(status=500, text="People manager not initialized")
-            
+
             person = await people_mgr.async_get_person(person_id)
             if not person:
                 return web.Response(status=404, text="Person not found")
-            
+
             return web.Response(
                 text=json.dumps(person, default=str),
                 content_type="application/json",
@@ -387,11 +404,11 @@ class PresenceFusionPersonDetailView(HomeAssistantView):
             people_mgr: PeopleManager = hass.data[DOMAIN].get("people_manager")
             if not people_mgr:
                 return web.Response(status=500, text="People manager not initialized")
-            
+
             success = await people_mgr.async_delete_person(person_id)
             if not success:
                 return web.Response(status=404, text="Person not found")
-            
+
             return web.Response(status=200, text="ok")
         except Exception as err:
             _LOGGER.exception("Failed to delete person: %s", err)
@@ -408,7 +425,7 @@ class PresenceFusionDeviceAssignView(HomeAssistantView):
         data = await request.json()
         person_id = data.get("person_id")
         device_id = data.get("device_id")
-        
+
         if not person_id or not device_id:
             return web.Response(status=400, text="Missing person_id or device_id")
 
@@ -416,7 +433,7 @@ class PresenceFusionDeviceAssignView(HomeAssistantView):
             people_mgr: PeopleManager = hass.data[DOMAIN].get("people_manager")
             if not people_mgr:
                 return web.Response(status=500, text="People manager not initialized")
-            
+
             device_id = str(device_id).lower()
             person = await people_mgr.async_assign_device(person_id, device_id)
             if not person:
@@ -446,8 +463,10 @@ class PresenceFusionFloorplansListView(HomeAssistantView):
         try:
             floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
             if not floorplan_mgr:
-                return web.Response(status=500, text="Floorplan manager not initialized")
-            
+                return web.Response(
+                    status=500, text="Floorplan manager not initialized"
+                )
+
             floorplans = await floorplan_mgr.async_list_floorplans()
             return web.Response(
                 text=json.dumps(floorplans, default=str),
@@ -462,11 +481,11 @@ class PresenceFusionFloorplansListView(HomeAssistantView):
         try:
             # Handle multipart form data for file upload
             reader = await request.multipart()
-            
+
             name = None
             image_data = None
             ha_area = None
-            
+
             async for field in reader:
                 if field.name == "name":
                     name = await field.text()
@@ -474,14 +493,16 @@ class PresenceFusionFloorplansListView(HomeAssistantView):
                     image_data = await field.read()
                 elif field.name == "ha_area":
                     ha_area = await field.text()
-            
+
             if not name:
                 return web.Response(status=400, text="Missing floorplan name")
-            
+
             floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
             if not floorplan_mgr:
-                return web.Response(status=500, text="Floorplan manager not initialized")
-            
+                return web.Response(
+                    status=500, text="Floorplan manager not initialized"
+                )
+
             floorplan = await floorplan_mgr.async_create_floorplan(
                 name, image_data=image_data, ha_area=ha_area
             )
@@ -504,12 +525,14 @@ class PresenceFusionFloorplanDetailView(HomeAssistantView):
         try:
             floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
             if not floorplan_mgr:
-                return web.Response(status=500, text="Floorplan manager not initialized")
-            
+                return web.Response(
+                    status=500, text="Floorplan manager not initialized"
+                )
+
             floorplan = await floorplan_mgr.async_get_floorplan(floorplan_id)
             if not floorplan:
                 return web.Response(status=404, text="Floorplan not found")
-            
+
             return web.Response(
                 text=json.dumps(floorplan, default=str),
                 content_type="application/json",
@@ -523,12 +546,14 @@ class PresenceFusionFloorplanDetailView(HomeAssistantView):
         try:
             floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
             if not floorplan_mgr:
-                return web.Response(status=500, text="Floorplan manager not initialized")
-            
+                return web.Response(
+                    status=500, text="Floorplan manager not initialized"
+                )
+
             success = await floorplan_mgr.async_delete_floorplan(floorplan_id)
             if not success:
                 return web.Response(status=404, text="Floorplan not found")
-            
+
             return web.Response(status=200, text="ok")
         except Exception as err:
             _LOGGER.exception("Failed to delete floorplan: %s", err)
@@ -544,15 +569,17 @@ class PresenceFusionFloorplanZoneView(HomeAssistantView):
         hass: HomeAssistant = request.app["hass"]
         data = await request.json()
         zone_name = data.get("name")
-        
+
         if not zone_name:
             return web.Response(status=400, text="Missing zone name")
 
         try:
             floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
             if not floorplan_mgr:
-                return web.Response(status=500, text="Floorplan manager not initialized")
-            
+                return web.Response(
+                    status=500, text="Floorplan manager not initialized"
+                )
+
             # Returns the created zone now
             zone_data = data.get("zone_data", {})
             if "ha_zone_id" in zone_data and "ha_area_id" not in zone_data:
@@ -586,12 +613,16 @@ class PresenceFusionFloorplanZoneDetailView(HomeAssistantView):
     name = "presence_fusion:floorplan_zone_detail"
     requires_auth = False
 
-    async def delete(self, request: web.Request, floorplan_id: str, zone_id: str) -> web.Response:
+    async def delete(
+        self, request: web.Request, floorplan_id: str, zone_id: str
+    ) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
         try:
             floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
             if not floorplan_mgr:
-                return web.Response(status=500, text="Floorplan manager not initialized")
+                return web.Response(
+                    status=500, text="Floorplan manager not initialized"
+                )
 
             floorplan = await floorplan_mgr.async_remove_zone(floorplan_id, zone_id)
             if not floorplan:
@@ -623,14 +654,16 @@ class PresenceFusionFloorplanProxyView(HomeAssistantView):
         try:
             floorplan_mgr: FloorplanManager = hass.data[DOMAIN].get("floorplan_manager")
             if not floorplan_mgr:
-                return web.Response(status=500, text="Floorplan manager not initialized")
-            
+                return web.Response(
+                    status=500, text="Floorplan manager not initialized"
+                )
+
             floorplan = await floorplan_mgr.async_add_proxy(
                 floorplan_id, proxy_id, position
             )
             if not floorplan:
                 return web.Response(status=404, text="Floorplan not found")
-            
+
             return web.Response(
                 text=json.dumps(floorplan, default=str),
                 content_type="application/json",
@@ -679,7 +712,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     presence_data = PresenceFusionData(hass)
     hass.data[DOMAIN]["data"] = presence_data
     hass.data[DOMAIN]["config_entry_id"] = entry.entry_id
-    hass.data[DOMAIN]["ble_poll_interval"] = entry.options.get("ble_poll_interval", 10.0)
+    hass.data[DOMAIN]["ble_poll_interval"] = entry.options.get(
+        "ble_poll_interval", 10.0
+    )
     hass.data[DOMAIN]["cesium_token"] = entry.options.get("cesium_token")
     await presence_data.async_refresh({})
 
@@ -694,7 +729,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from datetime import timedelta
 
     try:
-        interval = float(hass.data.setdefault(DOMAIN, {}).get("ble_poll_interval", 10.0))
+        interval = float(
+            hass.data.setdefault(DOMAIN, {}).get("ble_poll_interval", 10.0)
+        )
     except Exception:
         interval = 10.0
 

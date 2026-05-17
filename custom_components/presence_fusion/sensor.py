@@ -1,4 +1,5 @@
 """Sensor platform for Presence Fusion."""
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,9 @@ from .data import PresenceFusionData, SIGNAL_NEW_ZONE, SIGNAL_UPDATE
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
+):
     data: PresenceFusionData = hass.data[DOMAIN]["data"]
     entities: list[PresenceFusionZoneCountSensor] = []
 
@@ -50,7 +53,7 @@ class PresenceFusionZoneCountSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
-            identifiers={(DOMAIN, f"zone_{self._zone_id}" )},
+            identifiers={(DOMAIN, f"zone_{self._zone_id}")},
             name=self._data.async_get_zone_name(self._zone_id),
             manufacturer="Presence Fusion",
         )

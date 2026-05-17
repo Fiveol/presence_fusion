@@ -1,4 +1,5 @@
 """Panel registration for Presence Fusion."""
+
 import logging
 
 from homeassistant.components import frontend, panel_custom

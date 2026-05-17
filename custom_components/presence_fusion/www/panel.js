@@ -75,7 +75,6 @@ template.innerHTML = `
   </div>
 `;
 
-import { fetchData } from "./api.js";
 import { renderOverview } from "./views/overview.js";
 import { renderSettings } from "./views/settings.js";
 import { renderMap } from "./views/map.js";

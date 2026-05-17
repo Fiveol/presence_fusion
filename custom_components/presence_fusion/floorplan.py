@@ -1,4 +1,5 @@
 """Floorplan management for Presence Fusion."""
+
 import logging
 import json
 from pathlib import Path
@@ -51,7 +52,11 @@ class FloorplanManager:
             _LOGGER.error("Failed to save floorplans: %s", err)
 
     async def async_create_floorplan(
-        self, name: str, image_data: Optional[bytes] = None, ha_area: str | None = None, **kwargs: Any
+        self,
+        name: str,
+        image_data: Optional[bytes] = None,
+        ha_area: str | None = None,
+        **kwargs: Any
     ) -> dict[str, Any]:
         """Create a new floorplan."""
         floorplan_id = str(uuid4())
@@ -67,11 +72,12 @@ class FloorplanManager:
             "rotation": {"x": 0, "y": 0, "z": 0},
             **kwargs,
         }
-        
+
         if image_data:
             import base64
+
             floorplan["image"] = base64.b64encode(image_data).decode("utf-8")
-        
+
         self.floorplans[floorplan_id] = floorplan
         await self.async_save()
         return floorplan
@@ -82,13 +88,14 @@ class FloorplanManager:
         """Update a floorplan."""
         if floorplan_id not in self.floorplans:
             return None
-        
+
         # Don't allow direct image update via this method
         if "image" in kwargs and kwargs["image"] is not None:
             if isinstance(kwargs["image"], bytes):
                 import base64
+
                 kwargs["image"] = base64.b64encode(kwargs["image"]).decode("utf-8")
-        
+
         self.floorplans[floorplan_id].update(kwargs)
         await self.async_save()
         return self.floorplans[floorplan_id]
@@ -119,12 +126,12 @@ class FloorplanManager:
         """Add a zone to a floorplan and return the new zone."""
         if floorplan_id not in self.floorplans:
             return None
-        
+
         zone = {
             "id": str(uuid4()),
             "name": zone_name,
             "coordinates": [],  # 2D points on floorplan
-            "points_3d": [],    # 3D positions after alignment
+            "points_3d": [],  # 3D positions after alignment
             **zone_data,
         }
         self.floorplans[floorplan_id]["zones"].append(zone)
@@ -137,7 +144,7 @@ class FloorplanManager:
         """Remove a zone from a floorplan."""
         if floorplan_id not in self.floorplans:
             return None
-        
+
         self.floorplans[floorplan_id]["zones"] = [
             z for z in self.floorplans[floorplan_id]["zones"] if z["id"] != zone_id
         ]
@@ -150,7 +157,7 @@ class FloorplanManager:
         """Add a Bluetooth proxy to a floorplan."""
         if floorplan_id not in self.floorplans:
             return None
-        
+
         proxy = {
             "id": proxy_id,
             "position": position,  # {x, y} on floorplan, z=floor_index*height
@@ -169,7 +176,7 @@ class FloorplanManager:
         """Set 3D alignment (position and rotation) for a floorplan."""
         if floorplan_id not in self.floorplans:
             return None
-        
+
         self.floorplans[floorplan_id]["position"] = position
         self.floorplans[floorplan_id]["rotation"] = rotation
         await self.async_save()

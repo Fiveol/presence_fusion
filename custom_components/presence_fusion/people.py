@@ -1,4 +1,5 @@
 """Custom people storage for Presence Fusion."""
+
 import logging
 from typing import Any, Optional
 
@@ -93,14 +94,18 @@ class PeopleManager:
         changed = False
 
         for pid, person in self.people.items():
-            normalized_devices = [str(device).lower() for device in person.get("devices", [])]
+            normalized_devices = [
+                str(device).lower() for device in person.get("devices", [])
+            ]
             if device_id in normalized_devices:
                 self.people[pid]["devices"] = [
                     d for d in normalized_devices if d != device_id
                 ]
                 changed = True
 
-        devices = [str(device).lower() for device in self.people[person_id].get("devices", [])]
+        devices = [
+            str(device).lower() for device in self.people[person_id].get("devices", [])
+        ]
         if device_id not in devices:
             self.people[person_id]["devices"].append(device_id)
             changed = True
@@ -131,6 +136,8 @@ class PeopleManager:
         """Get the person assigned to a device."""
         device_id = str(device_id).lower()
         for person in self.people.values():
-            if device_id in [str(device).lower() for device in person.get("devices", [])]:
+            if device_id in [
+                str(device).lower() for device in person.get("devices", [])
+            ]:
                 return person
         return None
