@@ -28,6 +28,7 @@ PANEL_JS_PATH = "/presence_fusion/panel.js"
 MANIFEST_JSON_PATH = "/presence_fusion/manifest.json"
 MANIFEST_FILE = Path(__file__).parent / "manifest.json"
 PANEL_JS_FILE = Path(__file__).parent / "www" / "panel.js"
+WWW_DIR = Path(__file__).parent / "www"
 
 
 class PresenceFusionPanelJsView(HomeAssistantView):
@@ -36,7 +37,10 @@ class PresenceFusionPanelJsView(HomeAssistantView):
     requires_auth = False
 
     async def get(self, request: web.Request) -> web.Response:
-        return web.FileResponse(PANEL_JS_FILE)
+        return web.FileResponse(
+            PANEL_JS_FILE,
+            headers={"Content-Type": "application/javascript"},
+        )
 
 
 class PresenceFusionManifestView(HomeAssistantView):
@@ -48,6 +52,102 @@ class PresenceFusionManifestView(HomeAssistantView):
         return web.FileResponse(
             MANIFEST_FILE,
             headers={"Content-Type": "application/json"},
+        )
+
+
+class PresenceFusionViewOverviewView(HomeAssistantView):
+    url = "/presence_fusion/views/overview.js"
+    name = "presence_fusion:view_overview"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "views" / "overview.js",
+            headers={"Content-Type": "application/javascript"},
+        )
+
+
+class PresenceFusionViewMapView(HomeAssistantView):
+    url = "/presence_fusion/views/map.js"
+    name = "presence_fusion:view_map"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "views" / "map.js",
+            headers={"Content-Type": "application/javascript"},
+        )
+
+
+class PresenceFusionViewSettingsView(HomeAssistantView):
+    url = "/presence_fusion/views/settings.js"
+    name = "presence_fusion:view_settings"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "views" / "settings.js",
+            headers={"Content-Type": "application/javascript"},
+        )
+
+
+class PresenceFusionViewFloorplanView(HomeAssistantView):
+    url = "/presence_fusion/views/floorplan.js"
+    name = "presence_fusion:view_floorplan"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "views" / "floorplan.js",
+            headers={"Content-Type": "application/javascript"},
+        )
+
+
+class PresenceFusionViewDevicesView(HomeAssistantView):
+    url = "/presence_fusion/views/devices.js"
+    name = "presence_fusion:view_devices"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "views" / "devices.js",
+            headers={"Content-Type": "application/javascript"},
+        )
+
+
+class PresenceFusionViewPeopleView(HomeAssistantView):
+    url = "/presence_fusion/views/people.js"
+    name = "presence_fusion:view_people"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "views" / "people.js",
+            headers={"Content-Type": "application/javascript"},
+        )
+
+
+class PresenceFusionApiJsView(HomeAssistantView):
+    url = "/presence_fusion/api.js"
+    name = "presence_fusion:api_js"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "api.js",
+            headers={"Content-Type": "application/javascript"},
+        )
+
+
+class PresenceFusionPanelTemplateView(HomeAssistantView):
+    url = "/presence_fusion/panel-template.js"
+    name = "presence_fusion:panel_template"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        return web.FileResponse(
+            WWW_DIR / "panel-template.js",
+            headers={"Content-Type": "application/javascript"},
         )
 
 
@@ -677,6 +777,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.http.register_view(PresenceFusionPanelJsView())
     hass.http.register_view(PresenceFusionManifestView())
+    hass.http.register_view(PresenceFusionViewOverviewView())
+    hass.http.register_view(PresenceFusionViewMapView())
+    hass.http.register_view(PresenceFusionViewSettingsView())
+    hass.http.register_view(PresenceFusionViewFloorplanView())
+    hass.http.register_view(PresenceFusionViewDevicesView())
+    hass.http.register_view(PresenceFusionViewPeopleView())
+    hass.http.register_view(PresenceFusionApiJsView())
+    hass.http.register_view(PresenceFusionPanelTemplateView())
     hass.http.register_view(PresenceFusionApiDataView())
     hass.http.register_view(PresenceFusionPersonCreateView())
     hass.http.register_view(PresenceFusionSettingsView())
