@@ -62,8 +62,17 @@ class PresenceFusionPersonTracker(TrackerEntity):
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
-            async_dispatcher_connect(self.hass, SIGNAL_UPDATE, self.async_write_ha_state)
+            async_dispatcher_connect(self.hass, SIGNAL_UPDATE, self._async_update_state)
         )
+
+    async def _async_update_state(self, *_: Any) -> None:
+        current_state = self.hass.states.get(self.entity_id)
+        new_state = self.state
+        if current_state is not None and current_state.state == new_state:
+            const_attrs = self.extra_state_attributes or {}
+            if current_state.attributes.get("tracked_devices") == const_attrs.get("tracked_devices"):
+                return
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:

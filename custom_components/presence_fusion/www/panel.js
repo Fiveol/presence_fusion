@@ -278,11 +278,22 @@ class PresenceFusionPanel extends HTMLElement {
     if (this.view === "floorplan") {
       const floorplans = (this.data && this.data.floorplans) || [];
       if (this.selectedFloorplan) {
-        const fp = floorplans.find((item) => item.id === this.selectedFloorplan);
+        let fp = floorplans.find((item) => item.id === this.selectedFloorplan);
         if (!fp) {
           this.selectedFloorplan = null;
           this._render();
           return;
+        }
+
+        if (!fp.image) {
+          try {
+            const detailResp = await fetch(`/presence_fusion/api/floorplans/${fp.id}`);
+            if (detailResp.ok) {
+              fp = await detailResp.json();
+            }
+          } catch (err) {
+            console.warn("Could not load floorplan image details:", err);
+          }
         }
 
         content.innerHTML = `
@@ -313,26 +324,58 @@ class PresenceFusionPanel extends HTMLElement {
         `;
 
         const editor = this.shadowRoot.getElementById("floorplan-editor");
+        editor.style.position = "relative";
         const points = [];
         const pointList = this.shadowRoot.getElementById("zone-points");
         const image = document.createElement("img");
         image.style.maxWidth = "100%";
         image.style.maxHeight = "600px";
+        image.style.display = "block";
+        image.style.cursor = "crosshair";
         image.src = fp.image ? `data:image/png;base64,${fp.image}` : "";
         image.alt = fp.name;
+        image.style.position = "relative";
         editor.appendChild(image);
 
-        // Existing areas list with delete
-        const zonesList = document.createElement("div");
-        zonesList.style.marginTop = "8px";
-        zonesList.innerHTML = `<h4>Existing Areas</h4>`;
-        (fp.zones || []).forEach((z) => {
-          const zEl = document.createElement("div");
-          zEl.style.padding = "6px 0";
-          zEl.innerHTML = `<strong>${z.name}</strong> ${z.ha_area_id ? `(HA Area: ${z.ha_area_id})` : ""} <button data-zone-id="${z.id}" class="delete-zone">Delete</button>`;
-          zonesList.appendChild(zEl);
-        });
-        editor.appendChild(zonesList);
+        const overlay = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        overlay.setAttribute("style", "position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible;");
+        overlay.setAttribute("viewBox", "0 0 100 100");
+        overlay.setAttribute("preserveAspectRatio", "none");
+        editor.appendChild(overlay);
+
+        const redrawOverlay = () => {
+          while (overlay.firstChild) {
+            overlay.removeChild(overlay.firstChild);
+          }
+          if (!points.length) {
+            return;
+          }
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          const d = points
+            .map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`)
+            .join(" ");
+          path.setAttribute("d", d);
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", "rgba(0, 123, 255, 0.85)");
+          path.setAttribute("stroke-width", "0.8");
+          overlay.appendChild(path);
+
+          points.forEach((pt, idx) => {
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute("cx", String(pt.x));
+            circle.setAttribute("cy", String(pt.y));
+            circle.setAttribute("r", "1.2");
+            circle.setAttribute("fill", "rgba(0, 123, 255, 0.9)");
+            overlay.appendChild(circle);
+            const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            label.setAttribute("x", String(pt.x + 1.2));
+            label.setAttribute("y", String(pt.y - 1.2));
+            label.setAttribute("font-size", "2");
+            label.setAttribute("fill", "rgba(255,255,255,0.95)");
+            label.textContent = String(idx + 1);
+            overlay.appendChild(label);
+          });
+        };
 
         image.addEventListener("click", (event) => {
           const rect = image.getBoundingClientRect();
@@ -342,6 +385,7 @@ class PresenceFusionPanel extends HTMLElement {
           const pointEl = document.createElement("div");
           pointEl.textContent = `${points.length}: ${x.toFixed(1)}%, ${y.toFixed(1)}%`;
           pointList.appendChild(pointEl);
+          redrawOverlay();
         });
 
         // Hook up delete buttons
@@ -352,9 +396,9 @@ class PresenceFusionPanel extends HTMLElement {
             try {
               const resp = await fetch(`/presence_fusion/api/floorplans/${fp.id}/zones/${zid}`, { method: "DELETE" });
               if (resp.ok) {
-                alert("Zone deleted");
+                alert("Area deleted");
                 this._refreshData();
-              } else alert("Failed to delete zone");
+              } else alert("Failed to delete area");
             } catch (err) {
               console.error(err);
               alert("Error");
@@ -517,7 +561,7 @@ class PresenceFusionPanel extends HTMLElement {
                 },
               );
               if (resp.ok) {
-                alert("Deleted");
+                alert("Floorplan deleted");
                 this.selectedFloorplan = null;
                 this._refreshData();
               } else {
@@ -583,10 +627,11 @@ class PresenceFusionPanel extends HTMLElement {
         const item = document.createElement("div");
         item.style.padding = "8px";
         item.style.borderBottom = "1px solid var(--divider-color)";
-        const assignedPersonId = (this.data && this.data.device_to_person && this.data.device_to_person[d.address]) || "";
+        const deviceAddress = (d.address || "").toLowerCase();
+        const assignedPersonId = (this.data && this.data.device_to_person && this.data.device_to_person[deviceAddress]) || "";
         const peopleSelect = people.length
           ? `
-          <select class="device-person" data-device-id="${d.address}" style="margin:4px 0;">
+          <select class="device-person" data-device-id="${deviceAddress}" style="margin:4px 0;">
             <option value="">Assign to person...</option>
             ${people.map((p) => `<option value="${p.id}" ${p.id === assignedPersonId ? "selected" : ""}>${p.name}</option>`).join("")}
           </select>
@@ -611,7 +656,7 @@ class PresenceFusionPanel extends HTMLElement {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 person_id: personId,
-                device_id: deviceId,
+                device_id: deviceId.toLowerCase(),
               }),
             });
             if (resp.ok) {

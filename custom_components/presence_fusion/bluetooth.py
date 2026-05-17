@@ -28,21 +28,17 @@ async def async_get_ble_devices(hass: HomeAssistant) -> dict[str, Any]:
             _LOGGER.debug("async_discovered_service_info failed: %s", err)
             service_infos = []
 
+        if isinstance(service_infos, dict):
+            service_infos = list(service_infos.values())
+
         for info in service_infos:
             try:
-                address = getattr(info, "address", None)
-                if not address:
+                device_dict = _device_to_dict(info)
+                if not device_dict:
+                    device_dict = _device_to_dict(getattr(info, "device", None))
+                if not device_dict:
                     continue
 
-                # Name can be on the service_info or nested on a BLEDevice
-                name = getattr(info, "name", None) or getattr(info, "local_name", None)
-                if not name:
-                    device_obj = getattr(info, "device", None)
-                    name = getattr(device_obj, "name", None) if device_obj is not None else None
-                if not name:
-                    name = "Unknown BLE Device"
-
-                # Determine scanner/source if available
                 scanner = getattr(info, "scanner", None)
                 scanner_source = None
                 try:
@@ -50,17 +46,9 @@ async def async_get_ble_devices(hass: HomeAssistant) -> dict[str, Any]:
                 except Exception:
                     scanner_source = None
 
-                devices.append(
-                    {
-                        "address": str(address),
-                        "name": str(name),
-                        "rssi": getattr(info, "rssi", None),
-                        "manufacturer_data": dict(getattr(info, "manufacturer_data", {}) or {}),
-                        "service_data": dict(getattr(info, "service_data", {}) or {}),
-                        "tx_power": getattr(info, "tx_power", None),
-                        "scanner": scanner_source,
-                    }
-                )
+                device_dict["scanner"] = scanner_source
+                device_dict["address"] = device_dict["address"].lower()
+                devices.append(device_dict)
             except Exception as err:
                 _LOGGER.debug("Error converting service_info to dict: %s", err)
 

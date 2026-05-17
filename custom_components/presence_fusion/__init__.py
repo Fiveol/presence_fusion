@@ -11,10 +11,11 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, PLATFORMS
-from .data import PresenceFusionData
+from .data import PresenceFusionData, SIGNAL_UPDATE
 from .panel import async_setup_panel
 from .entities import async_create_person_entity
 from .bluetooth import async_get_ble_devices
@@ -89,7 +90,9 @@ class PresenceFusionApiDataView(HomeAssistantView):
                 # Build device-to-person mapping
                 for person in pf_people:
                     for device_id in person.get("devices", []):
-                        device_to_person[device_id] = person["id"]
+                        address = str(device_id).lower()
+                        if address:
+                            device_to_person[address] = person["id"]
 
             # Get BLE devices
             ble_info = await async_get_ble_devices(hass)
@@ -97,24 +100,22 @@ class PresenceFusionApiDataView(HomeAssistantView):
             # Get HA area list
             areas = []
             try:
-                registry = area_registry.async_get(hass)
-                area_entries = getattr(registry, "areas", None)
-                if area_entries is None and hasattr(registry, "async_list_areas"):
-                    area_entries = registry.async_list_areas()
-                if area_entries is not None:
+                registry = None
+                if hasattr(area_registry, "async_get"):
+                    registry = area_registry.async_get(hass)
+                elif hasattr(area_registry, "async_get_registry"):
+                    registry = area_registry.async_get_registry(hass)
+
+                if registry is not None:
+                    if hasattr(registry, "async_list_areas"):
+                        area_entries = await registry.async_list_areas()
+                    else:
+                        area_entries = getattr(registry, "areas", [])
+
                     for area in area_entries:
                         areas.append({"id": area.id, "name": area.name or ""})
             except Exception:
-                try:
-                    registry = area_registry.async_get_registry(hass)
-                    area_entries = getattr(registry, "areas", None)
-                    if area_entries is None and hasattr(registry, "async_list_areas"):
-                        area_entries = registry.async_list_areas()
-                    if area_entries is not None:
-                        for area in area_entries:
-                            areas.append({"id": area.id, "name": area.name or ""})
-                except Exception:
-                    areas = []
+                areas = []
 
             # Build device-to-zone mapping (device_tracker state = zone entity_id)
             device_to_zone = {}
@@ -135,7 +136,7 @@ class PresenceFusionApiDataView(HomeAssistantView):
             # Compute devices per person
             devices_per_person = {}
             for person in pf_people:
-                devices_per_person[person["id"]] = person.get("devices", [])
+                devices_per_person[person["id"]] = [str(device).lower() for device in person.get("devices", [])]
 
             payload = {
                 "people": [simplify(s) for s in people],
@@ -416,23 +417,15 @@ class PresenceFusionDeviceAssignView(HomeAssistantView):
             if not people_mgr:
                 return web.Response(status=500, text="People manager not initialized")
             
+            device_id = str(device_id).lower()
             person = await people_mgr.async_assign_device(person_id, device_id)
             if not person:
                 return web.Response(status=404, text="Person not found")
 
-            # Update or create the HA device_tracker for this person so their devices are tracked in state
-            try:
-                tracker_id = f"device_tracker.presence_fusion_person_{person_id}"
-                hass.states.async_set(
-                    tracker_id,
-                    hass.states.get(tracker_id).state if hass.states.get(tracker_id) else "home",
-                    attributes={
-                        "friendly_name": f"{person.get('name', person_id)} Location",
-                        "tracked_devices": person.get("devices", []),
-                    },
-                )
-            except Exception:
-                _LOGGER.debug("Could not update HA device_tracker for person %s", person_id)
+            presence_data: PresenceFusionData | None = hass.data[DOMAIN].get("data")
+            if presence_data is not None:
+                await presence_data._load_definitions()
+                async_dispatcher_send(hass, SIGNAL_UPDATE)
 
             return web.Response(
                 text=json.dumps(person, default=str),

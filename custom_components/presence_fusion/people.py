@@ -88,9 +88,26 @@ class PeopleManager:
         """Assign a device to a person."""
         if person_id not in self.people:
             return None
-        if device_id not in self.people[person_id]["devices"]:
+
+        device_id = str(device_id).lower()
+        changed = False
+
+        for pid, person in self.people.items():
+            normalized_devices = [str(device).lower() for device in person.get("devices", [])]
+            if device_id in normalized_devices:
+                self.people[pid]["devices"] = [
+                    d for d in normalized_devices if d != device_id
+                ]
+                changed = True
+
+        devices = [str(device).lower() for device in self.people[person_id].get("devices", [])]
+        if device_id not in devices:
             self.people[person_id]["devices"].append(device_id)
+            changed = True
+
+        if changed:
             await self.async_save()
+
         return self.people[person_id]
 
     async def async_unassign_device(
@@ -99,16 +116,21 @@ class PeopleManager:
         """Unassign a device from a person."""
         if person_id not in self.people:
             return None
-        if device_id in self.people[person_id]["devices"]:
-            self.people[person_id]["devices"].remove(device_id)
-            await self.async_save()
+        device_id = str(device_id).lower()
+        self.people[person_id]["devices"] = [
+            str(device).lower()
+            for device in self.people[person_id]["devices"]
+            if str(device).lower() != device_id
+        ]
+        await self.async_save()
         return self.people[person_id]
 
     async def async_get_person_by_device(
         self, device_id: str
     ) -> Optional[dict[str, Any]]:
         """Get the person assigned to a device."""
+        device_id = str(device_id).lower()
         for person in self.people.values():
-            if device_id in person.get("devices", []):
+            if device_id in [str(device).lower() for device in person.get("devices", [])]:
                 return person
         return None
