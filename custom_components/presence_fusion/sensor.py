@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
 from .data import PresenceFusionData, SIGNAL_NEW_ZONE, SIGNAL_UPDATE
@@ -45,6 +46,14 @@ class PresenceFusionZoneCountSensor(SensorEntity):
     @property
     def native_value(self) -> int:
         return self._data.async_get_zone_count(self._zone_id)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"zone_{self._zone_id}" )},
+            name=self._data.async_get_zone_name(self._zone_id),
+            manufacturer="Presence Fusion",
+        )
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(

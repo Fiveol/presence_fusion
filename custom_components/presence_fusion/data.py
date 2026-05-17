@@ -36,8 +36,8 @@ class PresenceFusionData:
         await self._load_definitions()
         self._proxy_to_zone = self._build_proxy_zone_map()
 
-        self.zone_counts = {zone_id: 0 for zone_id in self.zone_names}
-        self.person_states = {
+        new_zone_counts = {zone_id: 0 for zone_id in self.zone_names}
+        new_person_states = {
             person_id: STATE_NOT_HOME for person_id in self.person_names
         }
 
@@ -59,14 +59,20 @@ class PresenceFusionData:
             if zone is not None:
                 zone_id = zone.get("id")
                 if zone_id:
-                    self.zone_counts[zone_id] = self.zone_counts.get(zone_id, 0) + 1
-                    self.person_states[person_id] = zone.get("name", STATE_NOT_HOME)
+                    new_zone_counts[zone_id] = new_zone_counts.get(zone_id, 0) + 1
+                    new_person_states[person_id] = zone.get("name", STATE_NOT_HOME)
                     continue
 
             # No zone found for this discovery; still update person location by source.
-            self.person_states[person_id] = str(scanner_source or "home")
+            new_person_states[person_id] = str(scanner_source or "home")
 
-        async_dispatcher_send(self.hass, SIGNAL_UPDATE)
+        if new_zone_counts != self.zone_counts or new_person_states != self.person_states:
+            self.zone_counts = new_zone_counts
+            self.person_states = new_person_states
+            async_dispatcher_send(self.hass, SIGNAL_UPDATE)
+        else:
+            self.zone_counts = new_zone_counts
+            self.person_states = new_person_states
 
     async def async_add_person(self, person: dict[str, Any]) -> None:
         """Add a newly created person and notify entity platforms."""

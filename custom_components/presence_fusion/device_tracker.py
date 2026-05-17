@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.device_tracker import TrackerEntity
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
 from .data import PresenceFusionData, SIGNAL_NEW_PERSON, SIGNAL_UPDATE
@@ -44,6 +45,14 @@ class PresenceFusionPersonTracker(TrackerEntity):
     @property
     def state(self) -> str:
         return self._data.async_get_person_state(self._person_id)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"person_{self._person_id}" )},
+            name=self._data.async_get_person_name(self._person_id),
+            manufacturer="Presence Fusion",
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

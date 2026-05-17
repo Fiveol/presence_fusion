@@ -10,6 +10,7 @@ from homeassistant.components import frontend
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, PLATFORMS
@@ -185,7 +186,6 @@ class PresenceFusionPersonCreateView(HomeAssistantView):
                     "home",
                     attributes={"friendly_name": name},
                 )
-            await async_create_person_entity(hass, person_id, name)
         except Exception as err:
             _LOGGER.exception("Failed to create person: %s", err)
             return web.Response(status=500, text=str(err))
@@ -226,6 +226,26 @@ class PresenceFusionSettingsView(HomeAssistantView):
                 if cesium_token is not None:
                     options["cesium_token"] = str(cesium_token)
                 hass.config_entries.async_update_entry(entry, options=options)
+
+            if poll is not None:
+                existing_listener = hass.data[DOMAIN].get("ble_poll_listener")
+                if existing_listener:
+                    try:
+                        existing_listener()
+                    except Exception:
+                        pass
+                callback = hass.data[DOMAIN].get("ble_poll_callback")
+                if callback:
+                    from homeassistant.helpers.event import async_track_time_interval
+                    from datetime import timedelta
+
+                    interval = float(poll)
+                    listener = async_track_time_interval(
+                        hass, callback, timedelta(seconds=interval)
+                    )
+                    hass.data[DOMAIN]["ble_poll_listener"] = listener
+                    if entries:
+                        entries[0].async_on_unload(listener)
         except Exception as err:
             _LOGGER.exception("Failed to set settings: %s", err)
             return web.Response(status=500, text=str(err))
@@ -320,14 +340,15 @@ class PresenceFusionPeopleListView(HomeAssistantView):
             if presence_data is not None:
                 await presence_data.async_add_person(person)
 
-            # Ensure a HA device_tracker / person entity exists for this custom person
-            try:
-                await async_create_person_entity(hass, person_id, name)
-            except Exception:
-                _LOGGER.debug("Could not create HA person/device_tracker entity")
-
             return web.Response(
-                text=json.dumps(person, default=str),
+                text=json.dumps(
+                    {
+                        "id": person_id,
+                        "name": name,
+                        "device_tracker_id": f"device_tracker.presence_fusion_person_{person_id}",
+                    },
+                    default=str,
+                ),
                 content_type="application/json",
             )
         except Exception as err:
@@ -688,7 +709,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass, _update_presence_from_ble, timedelta(seconds=interval)
     )
     hass.data[DOMAIN]["ble_poll_listener"] = remove_listener
-    entry.async_on_unload(remove_listener)
+    hass.data[DOMAIN]["ble_poll_callback"] = _update_presence_from_ble
 
     try:
         hass.async_create_task(_update_presence_from_ble(None))

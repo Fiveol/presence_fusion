@@ -136,7 +136,7 @@ class PresenceFusionPanel extends HTMLElement {
 
     if (this.view === "settings") {
       const poll =
-        (this.data && this.data.poll) || window.presenceFusionPoll || 5;
+        (this.data && this.data.ble_poll_interval) || window.presenceFusionPoll || 5;
       const cesiumToken = (this.data && this.data.cesium_token) || "";
       content.innerHTML = `
         <h2 class="panel-title">Settings</h2>
@@ -294,13 +294,13 @@ class PresenceFusionPanel extends HTMLElement {
               <div id="floorplan-editor" style="position:relative; border:1px solid var(--divider-color); min-height:320px; background:#f4f4f4;"></div>
             </div>
             <div style="width:320px;">
-              <h4>Zone Builder</h4>
+              <h4>Area Builder</h4>
               <div id="zone-points">Click the image to add points</div>
-              <input id="zone-name" placeholder="Zone name" style="width:100%; margin-top:10px;" />
-              <button id="save-zone" style="margin-top:10px; width:100%;">Save Zone</button>
-              <h4 style="margin-top:14px;">Map existing HA zone to this floorplan</h4>
-              <select id="ha-zone-map" style="width:100%; margin-top:6px;"></select>
-              <button id="map-ha-zone" style="margin-top:8px; width:100%">Map HA Zone</button>
+              <input id="zone-name" placeholder="Area name" style="width:100%; margin-top:10px;" />
+              <button id="save-zone" style="margin-top:10px; width:100%">Save Area</button>
+              <h4 style="margin-top:14px;">Map existing HA area to this floorplan</h4>
+              <select id="ha-area-map" style="width:100%; margin-top:6px;"></select>
+              <button id="map-ha-area" style="margin-top:8px; width:100%">Map HA Area</button>
 
               <h4 style="margin-top:20px;">Proxy Placement</h4>
               <input id="proxy-id" placeholder="Proxy ID" style="width:100%;" />
@@ -322,14 +322,14 @@ class PresenceFusionPanel extends HTMLElement {
         image.alt = fp.name;
         editor.appendChild(image);
 
-        // Existing zones list with delete
+        // Existing areas list with delete
         const zonesList = document.createElement("div");
         zonesList.style.marginTop = "8px";
-        zonesList.innerHTML = `<h4>Existing Zones</h4>`;
+        zonesList.innerHTML = `<h4>Existing Areas</h4>`;
         (fp.zones || []).forEach((z) => {
           const zEl = document.createElement("div");
           zEl.style.padding = "6px 0";
-          zEl.innerHTML = `<strong>${z.name}</strong> ${z.ha_entity_id ? `(HA: ${z.ha_entity_id})` : ""} <button data-zone-id="${z.id}" class="delete-zone">Delete</button>`;
+          zEl.innerHTML = `<strong>${z.name}</strong> ${z.ha_area_id ? `(HA Area: ${z.ha_area_id})` : ""} <button data-zone-id="${z.id}" class="delete-zone">Delete</button>`;
           zonesList.appendChild(zEl);
         });
         editor.appendChild(zonesList);
@@ -348,7 +348,7 @@ class PresenceFusionPanel extends HTMLElement {
         zonesList.querySelectorAll(".delete-zone").forEach((btn) => {
           btn.addEventListener("click", async (e) => {
             const zid = e.currentTarget.dataset.zoneId;
-            if (!confirm("Delete this zone?")) return;
+            if (!confirm("Delete this area?")) return;
             try {
               const resp = await fetch(`/presence_fusion/api/floorplans/${fp.id}/zones/${zid}`, { method: "DELETE" });
               if (resp.ok) {
@@ -362,30 +362,30 @@ class PresenceFusionPanel extends HTMLElement {
           });
         });
 
-        // Populate HA zone map select in the editor
-        const haZones = (this.data && this.data.zones) || [];
-        const haMapSelect = this.shadowRoot.getElementById("ha-zone-map");
+        // Populate HA area map select in the editor
+        const haAreas = (this.data && this.data.areas) || [];
+        const haMapSelect = this.shadowRoot.getElementById("ha-area-map");
         if (haMapSelect) {
           haMapSelect.innerHTML = `
-            <option value="">(select HA zone)</option>
-            ${haZones.map((z) => `<option value="${z.entity_id}">${z.attributes.friendly_name || z.entity_id}</option>`).join("")} 
+            <option value="">(select HA area)</option>
+            ${haAreas.map((a) => `<option value="${a.id}">${a.name || a.id}</option>`).join("")} 
           `;
         }
 
-        this.shadowRoot.getElementById("map-ha-zone").addEventListener("click", async () => {
-          const haId = this.shadowRoot.getElementById("ha-zone-map").value;
-          if (!haId) return alert("Select an HA zone to map");
-          // Create a zone on the floorplan mapped to the HA zone
+        this.shadowRoot.getElementById("map-ha-area").addEventListener("click", async () => {
+          const haId = this.shadowRoot.getElementById("ha-area-map").value;
+          if (!haId) return alert("Select an HA area to map");
+          // Create an area on the floorplan mapped to the HA area
           try {
             const resp = await fetch(`/presence_fusion/api/floorplans/${fp.id}/zones`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: haId, zone_data: { ha_entity_id: haId } }),
+              body: JSON.stringify({ name: `HA Area ${haId}`, zone_data: { ha_area_id: haId } }),
             });
             if (resp.ok) {
-              alert("Mapped HA zone to floorplan");
+              alert("Mapped HA area to floorplan");
               this._refreshData();
-            } else alert("Failed to map HA zone");
+            } else alert("Failed to map HA area");
           } catch (err) {
             console.error(err);
             alert("Error");
@@ -403,7 +403,7 @@ class PresenceFusionPanel extends HTMLElement {
           .getElementById("save-zone")
           .addEventListener("click", async () => {
             const name = this.shadowRoot.getElementById("zone-name").value.trim();
-            if (!name) return alert("Enter a zone name");
+            if (!name) return alert("Enter an area name");
             if (!points.length) return alert("Add at least one point");
             try {
               const resp = await fetch(
@@ -415,10 +415,10 @@ class PresenceFusionPanel extends HTMLElement {
                 },
               );
               if (resp.ok) {
-                alert("Zone saved");
+                alert("Area saved");
                 this._refreshData();
               } else {
-                alert("Failed to save zone");
+                alert("Failed to save area");
               }
             } catch (err) {
               console.error(err);
@@ -466,21 +466,21 @@ class PresenceFusionPanel extends HTMLElement {
           <input type="file" id="floorplan-file" accept="image/jpg,image/jpeg,image/png" />
           <input type="text" id="floorplan-name" placeholder="Floorplan name" style="margin:0 8px;" />
           <div style="margin-top:8px;">
-            <label for="floorplan-ha-zone">Map to HA zone (optional):</label>
-            <select id="floorplan-ha-zone" style="margin-left:8px;"></select>
+            <label for="floorplan-ha-area">Map to HA area (optional):</label>
+            <select id="floorplan-ha-area" style="margin-left:8px;"></select>
           </div>
           <button id="upload-floorplan">Upload</button>
         </div>
       `;
 
       const list = this.shadowRoot.getElementById("floorplan-list");
-      // Populate HA zones select for mapping when creating floorplans
-      const haZones = (this.data && this.data.zones) || [];
-      const haSelect = this.shadowRoot.getElementById("floorplan-ha-zone");
+      // Populate HA areas select for mapping when creating floorplans
+      const haAreas = (this.data && this.data.areas) || [];
+      const haSelect = this.shadowRoot.getElementById("floorplan-ha-area");
       if (haSelect) {
         haSelect.innerHTML = `
           <option value="">(none)</option>
-          ${haZones.map((z) => `<option value="${z.entity_id}">${z.attributes.friendly_name || z.entity_id}</option>`).join("")}
+          ${haAreas.map((a) => `<option value="${a.id}">${a.name || a.id}</option>`).join("")}
         `;
       }
 
@@ -490,7 +490,7 @@ class PresenceFusionPanel extends HTMLElement {
           "border:1px solid var(--divider-color);padding:12px;border-radius:8px;cursor:pointer;";
         card.innerHTML = `
           <h4>${fp.name}</h4>
-          <small>${(fp.zones || []).length} zones</small><br/>
+          <small>${(fp.zones || []).length} areas</small><br/>
           <button data-fp-id="${fp.id}" class="edit-floorplan" style="margin-top:8px;">Edit</button>
           <button data-fp-id="${fp.id}" class="delete-floorplan" style="margin:8px 4px 0;">Delete</button>
         `;
@@ -545,8 +545,8 @@ class PresenceFusionPanel extends HTMLElement {
           formData.append("name", nameInput.value.trim());
 
           try {
-            const haZoneVal = this.shadowRoot.getElementById("floorplan-ha-zone").value;
-          if (haZoneVal) formData.append("ha_zone", haZoneVal);
+            const haAreaVal = this.shadowRoot.getElementById("floorplan-ha-area").value;
+          if (haAreaVal) formData.append("ha_area", haAreaVal);
 
           const resp = await fetch("/presence_fusion/api/floorplans", {
               method: "POST",
